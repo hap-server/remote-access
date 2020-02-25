@@ -1,0 +1,129 @@
+import TunnelServer, {Service} from './index';
+import Connection from './connection';
+import {ConnectServiceStatus, DisconnectServiceStatus} from '../common/message-types';
+import * as net from 'net';
+import httpHeaders = require('http-headers');
+
+export default class HttpService implements Service {
+    readonly tunnel_server_connections = new Map<string, Connection>();
+    readonly connections: (net.Socket & {service_hostname?: string;})[] = [];
+
+    constructor(readonly tunnel_server: TunnelServer, readonly server: net.Server) {
+        //
+    }
+
+    connect(hostname: string, connection: Connection) {
+        if (this.tunnel_server_connections.has(hostname)) return ConnectServiceStatus.OTHER_CLIENT_CONNECTED;
+        this.tunnel_server_connections.set(hostname, connection);
+        console.log('Connecting default HTTP service for %s to %s port %d',
+            hostname, connection.socket.remoteAddress, connection.socket.remotePort);
+        return ConnectServiceStatus.SUCCESS;
+    }
+
+    disconnect(hostname: string, connection: Connection, disconnected: boolean) {
+        if (this.tunnel_server_connections.get(hostname) !== connection) return DisconnectServiceStatus.WASNT_CONNECTED;
+        this.tunnel_server_connections.delete(hostname);
+        console.log('Disconnecting default HTTP service for %s from %s port %d',
+            hostname, connection.socket.remoteAddress, connection.socket.remotePort);
+        for (const socket of this.connections) {
+            if (socket.service_hostname !== hostname) continue;
+            socket.destroy();
+        }
+        return DisconnectServiceStatus.SUCCESS;
+    }
+
+    static async create(tunnel_server: TunnelServer, options?: net.ListenOptions) {
+        const server = net.createServer(socket => {
+            service.handleConnection(socket);
+        });
+
+        await new Promise<void>((resolve, reject) => {
+            const onlistening = () => {
+                resolve();
+
+                server.removeListener('listening', onlistening);
+                server.removeListener('error', onerror);
+            };
+            const onerror = (err: Error) => {
+                reject(err);
+
+                server.removeListener('listening', onlistening);
+                server.removeListener('error', onerror);
+            };
+
+            server.on('listening', onlistening);
+            server.on('error', onerror);
+
+            server.listen(options);
+        });
+
+        const service = new this(tunnel_server, server);
+        return service;
+    }
+
+    handleConnection(socket: net.Socket & {service_hostname?: string;}) {
+        this.connections.push(socket);
+
+        let hostname: string | null = null;
+        let buffer = Buffer.alloc(0);
+
+        const ondata = (chunk: Buffer) => {
+            buffer = Buffer.concat([buffer, chunk]);
+
+            const index = buffer.indexOf('\r\n\r\n');
+            // Haven't received headers yet
+            if (index < 0) return;
+
+            socket.removeListener('data', ondata);
+
+            const headers = httpHeaders(buffer.slice(0, index), true);
+            socket.service_hostname = hostname = headers.host;
+
+            // If the hostname includes a port number remove this
+            // TLS SNI values don't include port numbers, but HTTP Host headers do if not 80/443
+            if (hostname.match(/\:\d+$/)) {
+                socket.service_hostname = hostname = hostname.substr(0, hostname.lastIndexOf(':'));
+            }
+
+            // Get the tunnel server connection for this service hostname
+            const connection = this.tunnel_server_connections.get(hostname);
+
+            if (!connection) {
+                // No client is connected to this service for the hostname
+                // For plaintext HTTP we can return an error page
+                // For encrypted protocols, we would have to just drop the connection
+                const response = `Service not connected\n`;
+                socket.end(`HTTP/1.1 502 Proxy Error\r\n` +
+                    `Date: ${new Date()}\r\n` +
+                    `Connection: close\r\n` +
+                    `Content-Type: text/plain\r\n` +
+                    `Content-Length: ${response.length}\r\n` +
+                    `\r\n` + response);
+                return;
+            }
+
+            const tunnel_socket = connection.createServiceConnection(this, hostname, {
+                local_address: socket.localAddress,
+                local_port: socket.localPort,
+                remote_address: socket.remoteAddress!,
+                remote_port: socket.remotePort!,
+            });
+
+            tunnel_socket.write(buffer);
+
+            socket.pipe(tunnel_socket);
+            tunnel_socket.pipe(socket);
+
+            socket.on('close', () => tunnel_socket.destroy());
+            tunnel_socket.on('close', () => socket.destroy());
+        };
+        const onend = () => {
+            this.connections.splice(this.connections.indexOf(socket), 1);
+            socket.removeListener('data', ondata);
+            socket.removeListener('end', onend);
+        };
+
+        socket.on('data', ondata);
+        socket.on('end', onend);
+    }
+}

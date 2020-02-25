@@ -1,0 +1,38 @@
+{
+    "name": "@hap-server/remote-access",
+    "version": "0.1.0",
+    "description": "",
+    "private": true,
+    "author": {
+        "name": "Samuel Elliott",
+        "url": "https://samuelthomas2774.github.io"
+    },
+    "license": "MIT",
+    "keywords": [
+        "hap-server-plugin"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://gitlab.fancy.org.uk/hap-server/remote-access.git"
+    },
+    "main": "dist/index.js",
+    "files": [
+        "dist",
+        "bin",
+        "server.js",
+        "server.d.ts"
+    ],
+    "dependencies": {
+        "http-headers": "^3.0.2",
+        "is-tls-client-hello": "^1.0.0",
+        "sni": "^1.0.0"
+    },
+    "devDependencies": {
+        "@hap-server/api": "^0.11.2",
+        "@types/node": "^13.7.1",
+        "typescript": "^3.7.5"
+    },
+    "engines": {
+        "@hap-server/hap-server": "^0.10.4"
+    }
+}
