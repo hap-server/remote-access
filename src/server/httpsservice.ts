@@ -9,8 +9,15 @@ export default class HttpService implements Service {
     readonly tunnel_server_connections = new Map<string, Connection>();
     readonly connections: (net.Socket & {service_hostname?: string;})[] = [];
 
+    hostname_regex: RegExp | null = null;
+
     constructor(readonly tunnel_server: TunnelServer, readonly server: net.Server) {
         //
+    }
+
+    checkHostnameSupported(hostname: string) {
+        if (!this.hostname_regex) return true;
+        return this.hostname_regex.test(hostname);
     }
 
     connect(hostname: string, connection: Connection) {

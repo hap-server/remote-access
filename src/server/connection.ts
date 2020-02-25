@@ -2,9 +2,11 @@ import BaseConnection from '../common/connection';
 import * as net from 'net';
 import * as tls from 'tls';
 import * as stream from 'stream';
+import * as forge from 'node-forge';
 
 import TunnelServer, {Service} from './index';
-import {MessageType, CloseConnectionStatus, ServiceType, ConnectServiceStatus, DisconnectServiceStatus} from '../common/message-types';
+import RegisterSession from './registration';
+import {MessageType, CloseConnectionStatus, ServiceType, ConnectServiceStatus, DisconnectServiceStatus, ListHostsHostnameType, ListHostsHostnameStatus, AddHostStatus, RemoveHostStatus} from '../common/message-types';
 
 export interface ServiceConnectionOptions {
     local_address: string;
@@ -13,11 +15,29 @@ export interface ServiceConnectionOptions {
     remote_port: number;
 }
 
+function uint16BE(number: number) {
+    const buffer = Buffer.alloc(2);
+    buffer.writeUInt16BE(number, 0);
+    return buffer;
+}
+function uint32BE(number: number) {
+    const buffer = Buffer.alloc(4);
+    buffer.writeUInt32BE(number, 0);
+    return buffer;
+}
+
 export default class Connection extends BaseConnection {
+    static readonly PROTOCOL_VERSION = 1;
+
     readonly server: TunnelServer;
     readonly server_socket: net.Server | tls.Server;
     readonly socket: net.Socket | tls.TLSSocket;
 
+    readonly peer_certificate: tls.PeerCertificate | null;
+    readonly peer_certificate_forge: forge.pki.Certificate | null;
+    readonly peer_fingerprint_sha256: string | null;
+
+    private register_session: RegisterSession | null = null;
     readonly service_listeners: string[] = [];
     readonly service_connections = new Map<number, ServiceConnection>();
     private next_service_connection_id = 0;
@@ -29,12 +49,33 @@ export default class Connection extends BaseConnection {
         this.server_socket = server_socket;
         this.socket = socket;
 
+        const peer_certificate = this.socket instanceof tls.TLSSocket ?
+            this.socket.getPeerCertificate() : null;
+        this.peer_certificate = peer_certificate?.raw ? peer_certificate : null;
+
+        if (this.peer_certificate) {
+            // Convert an ASN.1 X.509x3 object to a Forge certificate
+            const asn1 = forge.asn1.fromDer(this.peer_certificate.raw.toString('binary'));
+            this.peer_certificate_forge = forge.pki.certificateFromAsn1(asn1);
+
+            const sha256 = forge.md.sha256.create();
+            // @ts-ignore
+            sha256.start();
+            sha256.update(forge.asn1.toDer(forge.pki.certificateToAsn1(this.peer_certificate_forge)).getBytes());
+            this.peer_fingerprint_sha256 = sha256.digest().toHex().replace(/(.{2})(?!$)/g, m => `${m}:`);
+        } else {
+            this.peer_certificate_forge = null;
+            this.peer_fingerprint_sha256 = null;
+        }
+
         socket.on('data', (data: Buffer) => {
             this.handleData(data);
         });
 
         socket.on('end', () => {
             this.emit('close');
+
+            this.register_session?.handleConnectionClosed();
 
             for (const service_name of this.service_listeners) {
                 const header = Buffer.from(service_name);
@@ -46,14 +87,6 @@ export default class Connection extends BaseConnection {
                 service?.disconnect(hostname, this, true);
             }
         });
-    }
-
-    get username() {
-        if (this.socket instanceof tls.TLSSocket) {
-            return this.socket.getPeerCertificate()?.fingerprint || null;
-        }
-
-        return null;
     }
 
     get encrypted() {
@@ -71,6 +104,36 @@ export default class Connection extends BaseConnection {
     handleMessage(type: MessageType, data: Buffer) {
         this.emit('message', type, data);
 
+        if (type === MessageType.PROTOCOL_VERSION) {
+            this.send(MessageType.PROTOCOL_VERSION, uint32BE(Connection.PROTOCOL_VERSION));
+        }
+        if (type === MessageType.PING) {
+            this.send(MessageType.PING, Buffer.alloc(0));
+        }
+
+        if (type === MessageType.REGISTER ||
+            type === MessageType.UNREGISTER ||
+            type === MessageType.RENEW_REGISTRATION ||
+            type === MessageType.REVOKE_CERTIFICATE
+        ) {
+            if (!this.register_session) this.register_session = new RegisterSession(this);
+
+            this.register_session.handleMessage(type, data);
+        }
+
+        if (type === MessageType.LIST_HOSTS) {
+            this.listHosts();
+        }
+        if (type === MessageType.ADD_HOST) {
+            this.addHost(data.toString());
+        }
+        if (type === MessageType.REMOVE_HOST) {
+            this.removeHost(data.toString());
+        }
+
+        if (type === MessageType.LIST_SERVICES) {
+            this.listServices(data.length ? data.toString() : null);
+        }
         if (type === MessageType.CONNECT_SERVICE) {
             const type = data.readUInt16BE(0);
             const identifier = data.readUInt32BE(2);
@@ -94,6 +157,102 @@ export default class Connection extends BaseConnection {
         }
     }
 
+    async listHosts() {
+        for (const client_provider of this.server.client_providers) {
+            try {
+                const hostnames = await client_provider.getHostnames(this);
+                if (hostnames === undefined || hostnames === null) continue;
+
+                const data = Buffer.concat(hostnames.map((hostname, index) => Buffer.concat([
+                    ...(index === 0 ? [] : [
+                        Buffer.from([ListHostsHostnameType.SEPARATOR]), uint32BE(0),
+                    ]),
+
+                    Buffer.from([ListHostsHostnameType.HOSTNAME]), uint32BE(hostname.hostname.length),
+                    Buffer.from(hostname.hostname, 'binary'),
+                    ...(hostname.domain ? [
+                        Buffer.from([ListHostsHostnameType.DOMAIN]), uint32BE(hostname.domain.length),
+                        Buffer.from(hostname.domain, 'binary'),
+                    ] : []),
+                    Buffer.from([ListHostsHostnameType.STATUS]), uint32BE(4),
+                    uint32BE(hostname.status ?? this.getHostnameStatus(hostname.hostname + '.' + hostname.domain)),
+                ])));
+
+                this.send(MessageType.LIST_HOSTS, data);
+                return;
+            } catch (err) {
+                console.error('Error getting hostnames', err);
+            }
+        }
+
+        this.send(MessageType.LIST_HOSTS, Buffer.alloc(0));
+    }
+
+    private getHostnameStatus(hostname: string) {
+        if (this.service_listeners.find(service_name => service_name.substr(6) === hostname)) {
+            return ListHostsHostnameStatus.CONNECTED;
+        }
+
+        for (const connection of this.server.connections) {    
+            if (this.service_listeners.find(service_name => service_name.substr(6) === hostname)) {
+                return ListHostsHostnameStatus.OTHER_CLIENT_CONNECTED;
+            }
+        }
+
+        return ListHostsHostnameStatus.NOT_CONNECTED;
+    }
+
+    async addHost(hostname: string) {
+        for (const client_provider of this.server.client_providers) {
+            try {
+                const status = await client_provider.addHostname(hostname, this);
+                if (status === undefined || status === null) continue;
+
+                this.send(MessageType.ADD_HOST, uint32BE(status));
+                return;
+            } catch (err) {
+                console.error('Error adding hostname', err);
+            }
+        }
+
+        this.send(MessageType.ADD_HOST, uint32BE(AddHostStatus.INVALID_DOMAIN));
+    }
+
+    async removeHost(hostname: string) {
+        for (const client_provider of this.server.client_providers) {
+            try {
+                const status = await client_provider.removeHostname(hostname, this);
+                if (status === undefined || status === null) continue;
+
+                this.send(MessageType.REMOVE_HOST, uint32BE(status));
+                return;
+            } catch (err) {
+                console.error('Error removing hostname', err);
+            }
+        }
+
+        this.send(MessageType.REMOVE_HOST, uint32BE(RemoveHostStatus.UNAUTHORISED));
+    }
+
+    async listServices(hostname: string | null) {
+        const data: Buffer[] = [];
+
+        for (const [type, services] of this.server.services) {
+            for (const [identifier, service] of services) {
+                if (hostname && !service.checkHostnameSupported(hostname)) continue;
+
+                const buffer = Buffer.alloc(6);
+
+                buffer.writeUInt16BE(type, 0);
+                buffer.writeUInt32BE(identifier, 2);
+
+                data.push(buffer);
+            }
+        }
+
+        this.send(MessageType.LIST_SERVICES, Buffer.concat(data));
+    }
+
     private getServiceName(type: ServiceType, identifier: number, hostname: string) {
         const header = Buffer.alloc(6);
         header.writeUInt16BE(type, 0);
@@ -102,14 +261,19 @@ export default class Connection extends BaseConnection {
         return Buffer.concat([header, Buffer.from(hostname)]);
     }
 
-    connectService(type: ServiceType, identifier: number, hostname: string) {
+    async connectService(type: ServiceType, identifier: number, hostname: string) {
         const service = this.server.getService(type, identifier);
         if (!service) {
             this.send(MessageType.CONNECT_SERVICE, Buffer.from([ConnectServiceStatus.UNSUPPORTED_SERVICE]));
             return;
         }
 
-        // TODO: authenticate this
+        if (!await this.server.authoriseConnectService(this, type, identifier, hostname)) {
+            console.warn('Client from %s port %d tried to connect as a hostname it is not authorised to connect as',
+                this.socket.remoteAddress, this.socket.remotePort);
+            this.send(MessageType.CONNECT_SERVICE, Buffer.from([ConnectServiceStatus.UNAUTHORISED]));
+            return;
+        }
 
         const status = service.connect(hostname, this);
         if (status === ConnectServiceStatus.SUCCESS) {
@@ -124,8 +288,6 @@ export default class Connection extends BaseConnection {
             this.send(MessageType.DISCONNECT_SERVICE, Buffer.from([DisconnectServiceStatus.WASNT_CONNECTED]));
             return;
         }
-
-        // TODO: authenticate this
 
         const status = service.disconnect(hostname, this, false);
         if (status === DisconnectServiceStatus.SUCCESS) {

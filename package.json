@@ -25,11 +25,14 @@
     "dependencies": {
         "http-headers": "^3.0.2",
         "is-tls-client-hello": "^1.0.0",
-        "sni": "^1.0.0"
+        "node-forge": "^0.9.1",
+        "sni": "^1.0.0",
+        "sqlite": "^3.0.3"
     },
     "devDependencies": {
         "@hap-server/api": "^0.11.2",
         "@types/node": "^13.7.1",
+        "@types/node-forge": "^0.9.2",
         "typescript": "^3.7.5"
     },
     "engines": {

@@ -2,19 +2,34 @@ import TunnelServer, {Service} from '../server';
 import HttpService from '../server/httpservice';
 import HttpsService from '../server/httpsservice';
 import HttpHttpsService from '../server/httphttpsservice';
-import LocalClientProvider from '../server/localclientprovider';
 import {DEFAULT_HTTP_SERVICE_IDENTIFIER, DEFAULT_HTTPS_SERVICE_IDENTIFIER} from '../constants';
 import {ServiceType} from '../common/message-types';
 import * as net from 'net';
 import * as path from 'path';
 import * as fs from 'fs';
 
+import SQLiteClientProvider from '../server/sqliteclientprovider';
+import CertificateIssuer from '../server/certificateissuer';
+
 (async ({data_path}) => {
     const tunnelserver = new TunnelServer();
 
-    const clientprovider = new LocalClientProvider(path.join(data_path, 'clients.json'));
+    const clientprovider = await SQLiteClientProvider.create(path.join(data_path, 'clients.sqlite'));
 
-    await clientprovider.ready;
+    const certissuer = await CertificateIssuer.createFromFiles(
+        path.join(data_path, 'issuer-privkey.pem'),
+        path.join(data_path, 'issuer-cert.pem'),
+        path.join(data_path, 'root-cert.pem')
+    );
+
+    certissuer.log = await fs.promises.open(path.join(data_path, 'clientcerts.pem'), 'a');
+
+    clientprovider.issuer = certissuer;
+
+    clientprovider.domains = [
+        'hapserver-tunnel.test',
+    ];
+    clientprovider.hostname_regex = /\.hapserver-tunnel\.test$/;
 
     tunnelserver.addClientProvider(clientprovider);
     tunnelserver.setDefaultClientProvider(clientprovider);
@@ -36,6 +51,8 @@ import * as fs from 'fs';
         host: '::',
         port: 9002,
     });
+
+    https_service.hostname_regex = /\.hapserver-tunnel\.test$/;
 
     const https_serviceaddress = https_service.server.address() as net.AddressInfo;
     console.log('Listening for HTTPS connections on %s port %d',
@@ -74,8 +91,18 @@ import * as fs from 'fs';
     // Start listening for secure tunnel server connections
 
     const secureserver = await tunnelserver.createSecureServer({
-        cert: fs.readFileSync(path.join(data_path, 'cert.pem')),
-        key: fs.readFileSync(path.join(data_path, 'privkey.pem')),
+        cert: Buffer.concat(await Promise.all([
+            fs.promises.readFile(path.join(data_path, 'server-cert.pem')),
+            fs.promises.readFile(path.join(data_path, 'intermediate-cert.pem')),
+            fs.promises.readFile(path.join(data_path, 'root-cert.pem')),
+        ])),
+        key: await fs.promises.readFile(path.join(data_path, 'server-privkey.pem')),
+        requestCert: true,
+        rejectUnauthorized: false,
+        ca: Buffer.concat(await Promise.all([
+            fs.promises.readFile(path.join(data_path, 'issuer-cert.pem')),
+            fs.promises.readFile(path.join(data_path, 'root-cert.pem')),
+        ])),
     }, {
         host: '::',
         port: 9004,
@@ -86,11 +113,15 @@ import * as fs from 'fs';
         secureserveraddress.address, secureserveraddress.port);
 
     secureserver.on('connection', socket => {
-        console.log('[TS] New secure connection from %s port %s', socket.remoteAddress, socket.remotePort);
+        console.log('[TS] New secure connection from %s port %s, waiting for TLS',
+            socket.remoteAddress, socket.remotePort);
 
         socket.on('close', () => {
             console.log('[TS] Secure connection from     %s port %s closed', socket.remoteAddress, socket.remotePort);
         });
+    });
+    secureserver.on('secureConnection', socket => {
+        console.log('[TS] New secure connection from %s port %s', socket.remoteAddress, socket.remotePort);
     });
 })({
     data_path: process.argv[2] ? path.resolve(process.cwd(), process.argv[2]) :

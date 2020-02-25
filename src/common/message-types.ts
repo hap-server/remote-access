@@ -8,10 +8,11 @@ export enum MessageType {
     REGISTER                                = 0x10,
     UNREGISTER                              = 0x11,
     RENEW_REGISTRATION                      = 0x12,
+    REVOKE_CERTIFICATE                      = 0x13,
 
     LIST_HOSTS                              = 0x20,
     ADD_HOST                                = 0x21,
-    REMOVE_HOST                             = 0x21,
+    REMOVE_HOST                             = 0x22,
 
     LIST_SERVICES                           = 0x30,
     CONNECT_SERVICE                         = 0x31,
@@ -34,13 +35,27 @@ export enum RegisterState {
 
 export enum RegisterStatus {
     SUCCESS = 0,
-    NOT_ACCEPTING_REGISTRATIONS = 1,
-    INVALID_CSR_DATA = 2,
+    UNKNOWN_ERROR = 1,
+    NOT_ACCEPTING_REGISTRATIONS = 2,
+    INVALID_CSR_DATA = 3,
 }
 
 export enum UnregisterStatus {
     SUCCESS = 0,
     UNAUTHORISED = 1,
+    OTHER_CLIENT_CONNECTED = 2,
+    SERVICES_CONNECTED = 3,
+}
+
+export enum RenewRegistrationStatus {
+    SUCCESS = 0,
+    UNKNOWN_ERROR = 1,
+}
+
+export enum RevokeCertificateStatus {
+    SUCCESS = 0,
+    UNAUTHORISED = 1,
+    NO_OTHER_CERTIFICATES = 2,
 }
 
 export enum ListHostsHostnameType {
@@ -62,7 +77,8 @@ export enum AddHostStatus {
     /** Hostname is currently registered */
     ALREADY_REGISTERED = 2,
     /** Hostname isn't registered, but was and can't be registered again */
-    PREVIOUSLY_REGISTERED = 2,
+    PREVIOUSLY_REGISTERED = 3,
+    UNKNOWN_ERROR = 4,
 }
 
 export enum RemoveHostStatus {
