@@ -1,5 +1,5 @@
 import {EventEmitter} from 'events';
-import Connection, { ServiceConnection } from './connection';
+import Connection, {ServiceConnection} from './connection';
 import {DEFAULT_SERVER} from '../constants';
 import {MessageType, ServiceType} from '../common/message-types';
 

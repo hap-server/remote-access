@@ -11,6 +11,7 @@ import {
 } from '../common/message-types';
 
 export interface ClientProvider {
+    domains?: string[];
     // validateClientCertificate(cert: tls.PeerCertificate): Promise<string | Error>;
     registerClient(csr: string, connection: Connection): Promise<Buffer | RegisterStatus>;
     unregisterClient(connection: Connection): Promise<UnregisterStatus | null>;

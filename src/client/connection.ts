@@ -1,13 +1,17 @@
+import {SERVICE_NAME} from '../constants';
 import BaseConnection from '../common/connection';
 import * as net from 'net';
 import * as tls from 'tls';
 import {promises as dns, SrvRecord} from 'dns';
 import {parse as parseUrl, UrlWithStringQuery} from 'url';
 import {parse as parseQueryString, ParsedUrlQuery} from 'querystring';
+import {promises as fs} from 'fs';
+import * as path from 'path';
 import * as stream from 'stream';
 import {
     MessageType, ServiceType, ConnectServiceStatus, DisconnectServiceStatus, CloseConnectionStatus,
 } from '../common/message-types';
+import * as nacl from 'tweetnacl';
 
 export enum ConnectionProtocol {
     TUNNEL = 'ts:',
@@ -22,6 +26,7 @@ export interface ServerTlsInfo {
 export interface ServerDiscoveryInfo {
     srv: SrvRecord[];
     txt: string[][];
+    signing_key: Buffer | null;
 }
 
 export interface ServerInfo {
@@ -29,6 +34,13 @@ export interface ServerInfo {
     hashdata: ParsedUrlQuery;
     host: string;
     port: number;
+    tls: ServerTlsInfo | null;
+    dnssd: ServerDiscoveryInfo | null;
+}
+export interface MultipleHostServerInfo {
+    urldata: UrlWithStringQuery;
+    hashdata: ParsedUrlQuery;
+    hosts: {host: string; port: number}[];
     tls: ServerTlsInfo | null;
     dnssd: ServerDiscoveryInfo | null;
 }
@@ -144,42 +156,56 @@ export default class Connection extends BaseConnection {
      */
     static async connect(url: string, timeout = 10000) {
         const serverinfo = await this.resolveServiceUrl(url);
+        const hosts = 'hosts' in serverinfo ? serverinfo.hosts : [serverinfo];
 
-        const socket = await new Promise<net.Socket | tls.TLSSocket>((rs, rj) => {
-            const onconnect = () => {
-                rs(socket);
-                socket.removeListener(serverinfo.tls ? 'secureConnect' : 'connect', onconnect);
-                socket.removeListener('error', onerror);
-            };
-            const onerror = (err: Error) => {
-                rj(err);
-                socket.removeListener(serverinfo.tls ? 'secureConnect' : 'connect', onconnect);
-                socket.removeListener('error', onerror);
-            };
+        let last_error: Error = new Error('No services found for URL');
 
-            const socket: net.Socket | tls.TLSSocket = serverinfo.tls ? tls.connect({
-                host: serverinfo.host, port: serverinfo.port, timeout,
+        for (const host of hosts) {
+            try {
+                console.warn('Trying %s port %d', host.host, host.port);
 
-                servername: serverinfo.tls.sni,
-                secureContext: serverinfo.tls.context,
-                // checkServerIdentity: (_host, cert) => {
-                //     return this.checkServerIdentity(url, serverinfo, socket, _host, cert);
-                // },
-            }, onconnect) : net.createConnection({
-                host: serverinfo.host, port: serverinfo.port, timeout,
-            }, onconnect);
+                const socket = await new Promise<net.Socket | tls.TLSSocket>((rs, rj) => {
+                    const onconnect = () => {
+                        rs(socket);
+                        socket.removeListener(serverinfo.tls ? 'secureConnect' : 'connect', onconnect);
+                        socket.removeListener('error', onerror);
+                    };
+                    const onerror = (err: Error) => {
+                        rj(err);
+                        socket.removeListener(serverinfo.tls ? 'secureConnect' : 'connect', onconnect);
+                        socket.removeListener('error', onerror);
+                    };
 
-            socket.on('error', onerror);
-        });
+                    const socket: net.Socket | tls.TLSSocket = serverinfo.tls ? tls.connect({
+                        host: host.host, port: host.port, timeout,
 
-        const connection = new Connection(url, socket);
+                        servername: serverinfo.tls.sni,
+                        secureContext: serverinfo.tls.context,
+                    }, onconnect) : net.createConnection({
+                        host: host.host, port: host.port, timeout,
+                    }, onconnect);
 
-        return connection;
+                    socket.on('error', onerror);
+                });
+
+                const connection = new Connection(url, socket);
+
+                return connection;
+            } catch (err) {
+                last_error = err;
+            }
+        }
+
+        throw last_error;
     }
 
-    static async resolveServiceUrl(url: string): Promise<ServerInfo> {
+    static async resolveServiceUrl(url: string): Promise<ServerInfo | MultipleHostServerInfo> {
         const urldata = parseUrl(url);
 
+        if (!urldata.hostname && !urldata.protocol && urldata.pathname) {
+            urldata.hostname = urldata.pathname;
+            urldata.pathname = null;
+        }
         if (!urldata.hostname) throw new Error('Missing host');
 
         if (!urldata.protocol) {
@@ -193,47 +219,100 @@ export default class Connection extends BaseConnection {
             }
 
             const [srv, txt] = await Promise.all([
-                resolver.resolve(urldata.hostname, 'SRV').then(srv => srv.sort((a, b) => {
+                resolver.resolve(SERVICE_NAME + urldata.hostname, 'SRV').then(srv => srv.sort((a, b) => {
                     if (a.priority > b.priority) return 1;
                     if (b.priority < a.priority) return -1;
 
                     // TODO: random sort using weight
                     return 0;
                 })),
-                resolver.resolve(urldata.hostname, 'TXT'),
+                resolver.resolve(SERVICE_NAME + urldata.hostname, 'TXT').catch(err => {
+                    if (err.code !== 'ENODATA') throw err;
+                    return [] as string[][];
+                }),
             ]);
 
-            let tlsinfo: ServerTlsInfo | null = null;
+            let enable_tls = false;
+            let tls_hostname: string | null = null;
+            let tls_ca: Buffer | null = null;
+            const signing_key = hashdata.pk ? Buffer.from(([] as string[]).concat(hashdata.pk)[0], 'hex') : null;
 
             for (const txtrecord of txt) {
                 if (!txtrecord[0] || txtrecord[0] !== 'hap-server/tunnel') continue;
 
                 if (txtrecord[1] && txtrecord[1] === 'tls') {
-                    tlsinfo = {
-                        sni: ([] as string[]).concat(hashdata.sni)[0] || urldata.hostname,
-                        context: tls.createSecureContext({
-                            //
-                        }),
-                    };
+                    enable_tls = true;
+
+                    if (['sni', 'ca'].includes(txtrecord[2]) && signing_key) {
+                        if (!txtrecord[4]) throw new Error('Invalid signature');
+                        const data = txtrecord[2] === 'ca' ?
+                            txtrecord[3] === '-' ?
+                                Buffer.concat(txtrecord.slice(5).map(t => Buffer.from(t))) :
+                                Buffer.from(txtrecord[3]) :
+                            Buffer.from(txtrecord[3]);
+                        const signature = Buffer.from(txtrecord[4], 'hex');
+                        if (!nacl.sign.detached.verify(Buffer.concat([
+                            Buffer.from('tls\0' + txtrecord[2] + '\0'),
+                            data,
+                        ]), signature, signing_key)) throw new Error('Invalid signature');
+                    }
+
+                    if (txtrecord[2] === 'sni' && txtrecord[3]) {
+                        tls_hostname = txtrecord[3];
+                    }
+                    if (txtrecord[2] === 'ca' && txtrecord[3]) {
+                        tls_ca = Buffer.from(txtrecord[3] === '-' ?
+                            txtrecord.slice(5).join('') : txtrecord[3], 'base64');
+                    }
                 }
             }
+
+            if (!tls_hostname) tls_hostname = urldata.hostname;
+
+            const ca_file = hashdata.caf ? ([] as string[]).concat(hashdata.caf)[0] : undefined;
+            if (hashdata.ca) tls_ca = Buffer.from(([] as string[]).concat(hashdata.ca)[0], 'base64');
+            else if (ca_file) tls_ca = await fs.readFile(path.resolve(process.cwd(), ca_file));
+            const cert_file = hashdata.cf ? ([] as string[]).concat(hashdata.cf)[0] : undefined;
+            const key_file = hashdata.kf ? ([] as string[]).concat(hashdata.cf)[0] : cert_file;
+            const cert = hashdata.cert ? Buffer.from(([] as string[]).concat(hashdata.cert)[0], 'base64') :
+                cert_file ? await fs.readFile(path.resolve(process.cwd(), cert_file)) : undefined;
+            const key = hashdata.key ? Buffer.from(([] as string[]).concat(hashdata.key)[0], 'base64') :
+                key_file ? await fs.readFile(path.resolve(process.cwd(), key_file)) : undefined;
+            if (tls_hostname || tls_ca || cert || key) enable_tls = true;
+
+            if (!tls_hostname) tls_hostname = ([] as string[]).concat(hashdata.sni)[0] || urldata.hostname;
+
+            const tls_options = enable_tls ? {
+                sni: tls_hostname,
+                context: tls_ca || cert || key ? tls.createSecureContext({
+                    ca: tls_ca || undefined,
+                    cert, key,
+                }) : undefined,
+            } : null;
 
             return {
                 urldata,
                 hashdata,
-                host: srv[0].name,
-                port: srv[0].port,
-                tls: tlsinfo,
-                dnssd: {srv, txt},
+                hosts: srv.map(s => ({host: s.name, port: s.port})),
+                tls: tls_options,
+                dnssd: {srv, txt, signing_key},
             };
         }
 
         if (!urldata.port) throw new Error('Missing port');
 
         if (urldata.protocol === ConnectionProtocol.TUNNEL) {
+            const hashdata = parseQueryString(urldata.hash ? urldata.hash.substr(1) : '');
+
+            if (hashdata.sni || hashdata.caf || hashdata.ca || hashdata.cf || hashdata.kf || hashdata.cert ||
+                hashdata.key
+            ) {
+                console.warn('URL uses the ts: protocol but TLS options were included');
+            }
+
             return {
                 urldata,
-                hashdata: parseQueryString(urldata.hash ? urldata.hash.substr(1) : ''),
+                hashdata,
                 host: urldata.hostname,
                 port: parseInt(urldata.port),
                 tls: null,
@@ -242,6 +321,16 @@ export default class Connection extends BaseConnection {
         } else if (urldata.protocol === ConnectionProtocol.SECURE_TUNNEL) {
             const hashdata = parseQueryString(urldata.hash ? urldata.hash.substr(1) : '');
 
+            const ca_file = hashdata.caf ? ([] as string[]).concat(hashdata.caf)[0] : undefined;
+            const ca = hashdata.ca ? Buffer.from(([] as string[]).concat(hashdata.ca)[0], 'base64') :
+                ca_file ? await fs.readFile(path.resolve(process.cwd(), ca_file)) : undefined;
+            const cert_file = hashdata.cf ? ([] as string[]).concat(hashdata.cf)[0] : undefined;
+            const key_file = hashdata.kf ? ([] as string[]).concat(hashdata.cf)[0] : cert_file;
+            const cert = hashdata.cert ? Buffer.from(([] as string[]).concat(hashdata.cert)[0], 'base64') :
+                cert_file ? await fs.readFile(path.resolve(process.cwd(), cert_file)) : undefined;
+            const key = hashdata.key ? Buffer.from(([] as string[]).concat(hashdata.key)[0], 'base64') :
+                key_file ? await fs.readFile(path.resolve(process.cwd(), key_file)) : undefined;
+
             return {
                 urldata,
                 hashdata,
@@ -249,6 +338,9 @@ export default class Connection extends BaseConnection {
                 port: parseInt(urldata.port),
                 tls: {
                     sni: ([] as string[]).concat(hashdata.sni)[0] || urldata.hostname,
+                    context: tls.createSecureContext({
+                        ca, cert, key,
+                    }),
                 },
                 dnssd: null,
             };

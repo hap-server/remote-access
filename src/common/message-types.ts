@@ -13,6 +13,7 @@ export enum MessageType {
     LIST_HOSTS                              = 0x20,
     ADD_HOST                                = 0x21,
     REMOVE_HOST                             = 0x22,
+    LIST_DOMAINS                            = 0x23,
 
     LIST_SERVICES                           = 0x30,
     CONNECT_SERVICE                         = 0x31,
