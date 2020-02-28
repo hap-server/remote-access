@@ -15,10 +15,12 @@
         "type": "git",
         "url": "https://gitlab.fancy.org.uk/hap-server/remote-access.git"
     },
-    "main": "dist/index.js",
+    "main": "dist/init/index.js",
     "files": [
         "dist",
-        "bin",
+        "!dist/cli",
+        "dist/cli/tunnelctl.*",
+        "bin/tunnelctl",
         "server.js",
         "server.d.ts"
     ],
@@ -36,6 +38,6 @@
         "typescript": "^3.7.5"
     },
     "engines": {
-        "@hap-server/hap-server": "^0.10.4"
+        "@hap-server/hap-server": "^0.11.2"
     }
 }
