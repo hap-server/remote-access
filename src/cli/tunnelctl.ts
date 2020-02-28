@@ -1,3 +1,4 @@
+import {DEFAULT_SERVER} from '../constants';
 import TunnelClient, {TunnelState} from '../client';
 import {ServiceConnection} from '../client/connection';
 import {MessageType, RegisterState, ServiceType, RegisterStatus, ListHostsHostnameType, AddHostStatus, RemoveHostStatus, ListHostsHostnameStatus} from '../common/message-types';
@@ -6,34 +7,32 @@ import * as http from 'http';
 import * as https from 'https';
 import {promises as fs} from 'fs';
 import * as path from 'path';
+import * as url from 'url';
 import * as querystring from 'querystring';
 import * as forge from 'node-forge';
 import {CertificationRequest} from '../types/node-forge';
 
+function generateKeyPair(options?: forge.pki.rsa.GenerateKeyPairOptions): Promise<forge.pki.rsa.KeyPair> {
+    return new Promise((rs, rj) => forge.pki.rsa.generateKeyPair(options, (err, keypair) => {
+        // keypair.privateKey, keypair.publicKey
+        err ? rj(err) : rs(keypair);
+    }));
+}
+
 const client = new TunnelClient();
 
 (async () => {
-    // client.url = 'ts://127.0.0.1:9000';
-    client.url = 'tss://127.0.0.1:9004#sni=hapserver-tunnel.fancy.org.uk&ca=' +
-        (await fs.readFile(path.join(__dirname, '..', '..', 'data', 'root-cert.pem'))).toString('base64');
-
-    if ([
-        'unregister', 'list-hostnames', 'add-hostname', 'remove-hostname', 'list-services', 'service',
-    ].includes(process.argv[3])) {
-        client.url = process.argv[2];
-
-        client.url = 'tss://127.0.0.1:9004#' + querystring.stringify({
-            sni: 'hapserver-tunnel.fancy.org.uk',
-            key: (await fs.readFile(path.join(__dirname, '..', '..', 'data', 'client-privkey.pem'))).toString('base64'),
-            ca: (await fs.readFile(path.join(__dirname, '..', '..', 'data', 'root-cert.pem'))).toString('base64'),
-        });
+    if (['register', 'list-services'].includes(process.argv[2])) {
+        process.argv.splice(2, 0, '');
     }
 
-    console.log('Connecting to', client.url.substr(0, Math.max(client.url.indexOf('#'), 0) || client.url.length));
+    client.url = process.argv[2] || DEFAULT_SERVER;
+
+    console.warn('Connecting to', client.url.substr(0, Math.max(client.url.indexOf('#'), 0) || client.url.length));
     await client.connect();
 
-    if (process.argv[2] === 'register') {
-        console.log('Register');
+    if (process.argv[3] === 'register') {
+        console.warn('Register');
 
         const email_address = 'user@example.com';
 
@@ -62,7 +61,7 @@ const client = new TunnelClient();
 
         csr.sign(keypair.privateKey, forge.md.sha512.create());
 
-        console.log('CSR', csr);
+        console.warn('CSR', csr);
 
         // Register the keypair on the server
         client.connection!.send(MessageType.REGISTER, Buffer.concat([
@@ -77,8 +76,20 @@ const client = new TunnelClient();
 
         if (status === RegisterStatus.SUCCESS) {
             const certificate_chain_pem = state_certificate.slice(2).toString('binary');
+            const certificate = forge.pki.certificateFromPem(certificate_chain_pem);
+            const private_key_pem = forge.pki.privateKeyToPem(keypair.privateKey);
 
-            console.warn('Certificate', certificate_chain_pem);
+            const urldata = url.parse(client.url);
+            urldata.hash = (urldata.hash ? urldata.hash + '&' : '') + querystring.stringify({
+                cert: Buffer.from(certificate_chain_pem).toString('base64'),
+                key: Buffer.from(private_key_pem).toString('base64'),
+            });
+
+            console.warn('Issued certificate', certificate.subject.getField({name: 'commonName'})?.value);
+            console.warn('Authenticated server URL:', url.format(urldata));
+
+            console.log(certificate_chain_pem);
+            console.log(private_key_pem);
         } else if (status === RegisterStatus.INVALID_CSR_DATA) {
             const err = new Error('Invalid CSR data');
             // @ts-ignore
@@ -96,7 +107,7 @@ const client = new TunnelClient();
             throw err;
         }
     } else if (process.argv[3] === 'unregister') {
-        console.log('Unregister');
+        console.warn('Unregister');
     } else if (process.argv[3] === 'list-hostnames') {
         client.connection?.send(MessageType.LIST_HOSTS, Buffer.alloc(0));
         let [, data] = await client.connection!.waitForMessage(type => type === MessageType.LIST_HOSTS);

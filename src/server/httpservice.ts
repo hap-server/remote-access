@@ -4,11 +4,25 @@ import {ConnectServiceStatus, DisconnectServiceStatus} from '../common/message-t
 import * as net from 'net';
 import httpHeaders = require('http-headers');
 
+type DefaultResponseData = Buffer | string | {
+    raw: Buffer | string;
+    close?: boolean;
+} | {
+    code?: number;
+    status?: string;
+    headers?: Record<string, string | string[]>;
+    body: Buffer | string;
+    close?: boolean;
+};
+
 export default class HttpService implements Service {
     readonly tunnel_server_connections = new Map<string, Connection>();
     readonly connections: (net.Socket & {service_hostname?: string;})[] = [];
 
     hostname_regex: RegExp | null = null;
+    default_response:
+        DefaultResponseData | ((socket: net.Socket, headers: httpHeaders.HttpHeaders) => DefaultResponseData) =
+        `Service not connected\n`;
 
     constructor(readonly tunnel_server: TunnelServer, readonly server: net.Server) {
         //
@@ -99,13 +113,29 @@ export default class HttpService implements Service {
                 // No client is connected to this service for the hostname
                 // For plaintext HTTP we can return an error page
                 // For encrypted protocols, we would have to just drop the connection
-                const response = `Service not connected\n`;
-                socket.end(`HTTP/1.1 502 Proxy Error\r\n` +
+                const response = typeof this.default_response === 'function' ?
+                    this.default_response.call(undefined, socket, headers) : this.default_response;
+                const raw_response = typeof response === 'object' && !(response instanceof Buffer) ?
+                    'raw' in response ? response.raw :
+                    Buffer.concat([
+                        Buffer.from(`HTTP/1.1 ${response.code || 502} ${response.status || 'Proxy Error'}\r\n`),
+                        this.buildHttpResponseHeaders({
+                            'Date': '' + new Date(), 
+                            'Connection': 'close',
+                            'Content-Type': 'text/plain',
+                            'Content-Length': '' + response.body.length,
+                        }, response.headers || {}),
+                        Buffer.from('\r\n'),
+                        response.body instanceof Buffer ? response.body : Buffer.from(response.body),
+                    ]) :
+                    `HTTP/1.1 502 Proxy Error\r\n` +
                     `Date: ${new Date()}\r\n` +
                     `Connection: close\r\n` +
                     `Content-Type: text/plain\r\n` +
                     `Content-Length: ${response.length}\r\n` +
-                    `\r\n` + response);
+                    `\r\n` + response;
+                socket.write(raw_response);
+                if (typeof response !== 'object' || !('close' in response) || response.close) socket.end();
                 return;
             }
 
@@ -132,5 +162,25 @@ export default class HttpService implements Service {
 
         socket.on('data', ondata);
         socket.on('end', onend);
+    }
+
+    private buildHttpResponseHeaders(...all_headers: Record<string, string | string[]>[]) {
+        const headers = {} as Record<string, string[]>;
+
+        for (const all_headers2 of all_headers) {
+            for (const [key, value] of Object.entries(all_headers2)) {
+                headers[key] = value instanceof Array ? value : [value];
+            }
+        }
+
+        let data = '';
+
+        for (const [name, values] of Object.entries(headers)) {
+            for (const value of values) {
+                data += `${name}: ${value}\r\n`;
+            }
+        }
+
+        return Buffer.from(data);
     }
 }

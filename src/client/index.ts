@@ -45,10 +45,10 @@ export default class TunnelClient extends EventEmitter {
         this._updating_state = true;
 
         while (this.state !== this.target_state) {
-            console.log('Updating state');
+            console.warn('Updating state');
 
             if (this.target_state === TunnelState.CONNECTED) {
-                console.log('Connecting');
+                console.warn('Connecting');
 
                 try {
                     if (this.connection && this.connection.url !== this.url) {

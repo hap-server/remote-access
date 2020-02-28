@@ -260,7 +260,7 @@ export default class Connection extends BaseConnection {
     static checkServerIdentity(
         url: string, data: ServerInfo, socket: net.Socket | tls.TLSSocket, host: string, cert: tls.PeerCertificate
     ): Error | undefined {
-        console.log('Checking tunnel server identity', url, socket, host, cert);
+        console.warn('Checking tunnel server identity', url, socket, host, cert);
         return undefined;
     }
 }

@@ -37,7 +37,7 @@ interface ClientCertificateRecord {
 interface HostnameRecord {
     client_id: number;
     hostname: string;
-    revoked: boolean;
+    revoked: 0 | 1;
 }
 
 export default class SQLiteClientProvider implements ClientProvider {
@@ -73,7 +73,7 @@ export default class SQLiteClientProvider implements ClientProvider {
             return RegisterStatus.INVALID_CSR_DATA;
         }
 
-        console.log(csr);
+        console.warn(csr);
 
         const common_name = csr.subject.getField({name: 'commonName'})?.value;
 
@@ -96,8 +96,7 @@ export default class SQLiteClientProvider implements ClientProvider {
                 return RegisterStatus.INVALID_CSR_DATA;
             }
 
-            console.log('Email address', email_attribute, email_address);
-            console.log('Waiting for verification');
+            console.log('Waiting for verification for email address', email_attribute, email_address);
 
             try {
                 await this.email_verifier.verifyEmailAddress(email_address, connection, csr);
@@ -105,7 +104,7 @@ export default class SQLiteClientProvider implements ClientProvider {
                 console.error('Error validating email address', email_address);
             }
         } else {
-            console.log('Not checking email address');
+            console.warn('Not checking email address');
         }
 
         const [cert, ...issuer_chain] = await this.issuer.issueCertificateForRequest(csr);
@@ -329,13 +328,13 @@ export default class SQLiteClientProvider implements ClientProvider {
         if (!client_details) return null;
         if (!client_details.cert_valid) return false;
 
-        console.log('Checking authorisation of client #%d for hostname %s',
+        console.warn('Checking authorisation of client #%d for hostname %s',
             client_details.id, hostname);
 
         const hostname_record: HostnameRecord | undefined =
             await this.database.get(sql`SELECT * FROM hostnames WHERE hostname = ${hostname}`);
 
-        console.log(hostname_record);
+        console.warn(hostname_record);
 
         if (!hostname_record) return false;
         if (hostname_record.client_id !== client_details.id) return false;
