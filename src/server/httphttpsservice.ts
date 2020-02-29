@@ -23,7 +23,7 @@ export default class HttpHttpsService implements Service {
 
     hostname_regex: RegExp | null = null;
     default_response:
-        DefaultResponseData | ((socket: net.Socket, headers: httpHeaders.HttpHeaders) => DefaultResponseData) =
+        DefaultResponseData | ((socket: net.Socket, request: httpHeaders.HttpRequest) => DefaultResponseData) =
         `Service not connected\n`;
 
     constructor(readonly tunnel_server: TunnelServer, readonly server: net.Server) {
@@ -117,6 +117,18 @@ export default class HttpHttpsService implements Service {
 
             socket.removeListener('data', ondata);
 
+            const request = type === 'http' ?
+                httpHeaders(buffer.slice(0, buffer.indexOf('\r\n\r\n'))) as httpHeaders.HttpRequest : null;
+            if (request && (typeof request.version === 'string' || !('url' in request))) {
+                const response = 'Service unavailable\n';
+                socket.end(`HTTP/1.1 400 Bad Request\r\n` +
+                    `Date: ${new Date()}\r\n` +
+                    `Connection: close\r\n` +
+                    `Content-Type: text/plain\r\n` +
+                    `Content-Length: ${response.length}\r\n` +
+                    `\r\n` + response);
+            }
+
             if (type === 'tls') {
                 if (!isTlsClientHello(buffer)) {
                     // Invalid TLS Client Hello
@@ -137,8 +149,7 @@ export default class HttpHttpsService implements Service {
                 socket.service_hostname = hostname = sni;
             } else {
                 const index = buffer.indexOf('\r\n\r\n');
-                const headers = httpHeaders(buffer.slice(0, index), true);
-                socket.service_hostname = hostname = headers.host;
+                socket.service_hostname = hostname = request!.headers.host;
 
                 // If the hostname includes a port number remove this
                 // TLS SNI values don't include port numbers, but HTTP Host headers do if not 80/443
@@ -157,8 +168,7 @@ export default class HttpHttpsService implements Service {
                     socket.destroy();
                 } else {
                     const response = typeof this.default_response === 'function' ?
-                        this.default_response.call(undefined, socket,
-                            httpHeaders(buffer.slice(0, buffer.indexOf('\r\n\r\n')), true)) : this.default_response;
+                        this.default_response.call(undefined, socket, request!) : this.default_response;
                     const raw_response = typeof response === 'object' && !(response instanceof Buffer) ?
                         'raw' in response ? response.raw :
                         Buffer.concat([

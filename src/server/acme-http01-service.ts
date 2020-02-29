@@ -15,14 +15,14 @@ type DefaultResponseData = Buffer | string | {
     close?: boolean;
 };
 
-export default class HttpService implements Service {
+export default class AcmeHttp01Service implements Service {
     readonly tunnel_server_connections = new Map<string, Connection>();
     readonly connections: (net.Socket & {service_hostname?: string;})[] = [];
 
     hostname_regex: RegExp | null = null;
     default_response:
-        DefaultResponseData | ((socket: net.Socket, request: httpHeaders.HttpRequest) => DefaultResponseData) =
-        `Service not connected\n`;
+        DefaultResponseData | ((socket: net.Socket, headers: httpHeaders.HttpRequest) => DefaultResponseData) | null =
+        null;
 
     constructor(readonly tunnel_server: TunnelServer, readonly server: net.Server) {
         //
@@ -36,16 +36,12 @@ export default class HttpService implements Service {
     connect(hostname: string, connection: Connection) {
         if (this.tunnel_server_connections.has(hostname)) return ConnectServiceStatus.OTHER_CLIENT_CONNECTED;
         this.tunnel_server_connections.set(hostname, connection);
-        console.log('Connecting default HTTP service for %s to %s port %d',
-            hostname, connection.socket.remoteAddress, connection.socket.remotePort);
         return ConnectServiceStatus.SUCCESS;
     }
 
     disconnect(hostname: string, connection: Connection, disconnected: boolean) {
         if (this.tunnel_server_connections.get(hostname) !== connection) return DisconnectServiceStatus.WASNT_CONNECTED;
         this.tunnel_server_connections.delete(hostname);
-        console.log('Disconnecting default HTTP service for %s from %s port %d',
-            hostname, connection.socket.remoteAddress, connection.socket.remotePort);
         for (const socket of this.connections) {
             if (socket.service_hostname !== hostname) continue;
             socket.destroy();
@@ -99,13 +95,7 @@ export default class HttpService implements Service {
 
             const request = httpHeaders(buffer.slice(0, index)) as httpHeaders.HttpRequest;
             if (typeof request.version === 'string' || !('url' in request)) {
-                const response = 'Service unavailable\n';
-                socket.end(`HTTP/1.1 400 Bad Request\r\n` +
-                    `Date: ${new Date()}\r\n` +
-                    `Connection: close\r\n` +
-                    `Content-Type: text/plain\r\n` +
-                    `Content-Length: ${response.length}\r\n` +
-                    `\r\n` + response);
+                return this.sendDefaultResponse(socket, request, 400, 'Bad Request', {}, 'Service unavailable');
             }
             socket.service_hostname = hostname = request.headers.host;
 
@@ -115,6 +105,13 @@ export default class HttpService implements Service {
                 socket.service_hostname = hostname = hostname.substr(0, hostname.lastIndexOf(':'));
             }
 
+            if (!request.url.startsWith('/.well-known/acme-challenge/')) {
+                return this.sendDefaultResponse(socket, request, 403, 'Forbidden', {}, 'Service unavailable');
+            }
+            if (request.method !== 'GET') {
+                return this.sendDefaultResponse(socket, request, 405, 'Method Not Allowed', {}, 'Service unavailable');
+            }
+
             // Get the tunnel server connection for this service hostname
             const connection = this.tunnel_server_connections.get(hostname);
 
@@ -122,30 +119,7 @@ export default class HttpService implements Service {
                 // No client is connected to this service for the hostname
                 // For plaintext HTTP we can return an error page
                 // For encrypted protocols, we would have to just drop the connection
-                const response = typeof this.default_response === 'function' ?
-                    this.default_response.call(undefined, socket, request) : this.default_response;
-                const raw_response = typeof response === 'object' && !(response instanceof Buffer) ?
-                    'raw' in response ? response.raw :
-                    Buffer.concat([
-                        Buffer.from(`HTTP/1.1 ${response.code || 502} ${response.status || 'Proxy Error'}\r\n`),
-                        this.buildHttpResponseHeaders({
-                            'Date': '' + new Date(), 
-                            'Connection': 'close',
-                            'Content-Type': 'text/plain',
-                            'Content-Length': '' + response.body.length,
-                        }, response.headers || {}),
-                        Buffer.from('\r\n'),
-                        response.body instanceof Buffer ? response.body : Buffer.from(response.body),
-                    ]) :
-                    `HTTP/1.1 502 Proxy Error\r\n` +
-                    `Date: ${new Date()}\r\n` +
-                    `Connection: close\r\n` +
-                    `Content-Type: text/plain\r\n` +
-                    `Content-Length: ${response.length}\r\n` +
-                    `\r\n` + response;
-                socket.write(raw_response);
-                if (typeof response !== 'object' || !('close' in response) || response.close) socket.end();
-                return;
+                return this.sendDefaultResponse(socket, request);
             }
 
             const tunnel_socket = connection.createServiceConnection(this, hostname, {
@@ -171,6 +145,44 @@ export default class HttpService implements Service {
 
         socket.on('data', ondata);
         socket.on('end', onend);
+    }
+
+    private sendDefaultResponse(
+        socket: net.Socket, request: httpHeaders.HttpRequest,
+        default_response_code = 502, default_response_status = 'Proxy Error',
+        response_headers: Record<string, string | string[]> = {},
+        default_response: DefaultResponseData = 'Service not connected'
+    ) {
+        const response = typeof this.default_response === 'function' ?
+            this.default_response.call(undefined, socket, request) :
+            this.default_response ? this.default_response : default_response;
+
+        const raw_response = typeof response === 'object' && !(response instanceof Buffer) ?
+            'raw' in response ? response.raw : Buffer.concat([
+                Buffer.from(`HTTP/1.1 ${response.code || default_response_code} ${response.status || default_response_status}\r\n`),
+                this.buildHttpResponseHeaders({
+                    'Date': '' + new Date(), 
+                    'Connection': 'close',
+                    'Content-Type': 'text/plain',
+                    'Content-Length': '' + response.body.length,
+                }, response_headers, response.headers || {}),
+                Buffer.from('\r\n'),
+                response.body instanceof Buffer ? response.body : Buffer.from(response.body),
+            ]) : Buffer.concat([
+                Buffer.from(`HTTP/1.1 ${default_response_code} ${default_response_status}\r\n`),
+                this.buildHttpResponseHeaders({
+                    'Date': '' + new Date(), 
+                    'Connection': 'close',
+                    'Content-Type': 'text/plain',
+                    'Content-Length': '' + response.length,
+                }, response_headers),
+                Buffer.from('\r\n'),
+                response instanceof Buffer ? response : Buffer.from(response),
+            ]);
+
+        socket.write(raw_response);
+
+        if (typeof response !== 'object' || !('close' in response) || response.close) socket.end();
     }
 
     private buildHttpResponseHeaders(...all_headers: Record<string, string | string[]>[]) {
