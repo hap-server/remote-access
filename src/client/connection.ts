@@ -370,7 +370,7 @@ export interface ServiceConnectionOptions {
     remote_port: number;
 }
 
-export class ServiceConnection extends stream.Duplex {
+export class ServiceConnection extends stream.Duplex implements net.Socket {
     bytesRead = 0;
     bytesWritten = 0;
 
@@ -384,15 +384,15 @@ export class ServiceConnection extends stream.Duplex {
             this.destroy(new Error('Disconnected'));
         };
 
-        const onend = () => {
+        const onclose = () => {
             connection.service_connections.delete(this.connection_id);
 
             connection.removeListener('close', onconnectionclose);
-            this.removeListener('close', onend);
+            this.removeListener('close', onclose);
         };
 
         connection.on('close', onconnectionclose);
-        this.on('close', onend);
+        this.on('close', onclose);
 
         connection.service_connections.set(this.connection_id, this);
     }
@@ -408,12 +408,31 @@ export class ServiceConnection extends stream.Duplex {
         callback();
     }
 
+    _final(callback: (err?: Error) => void) {
+        const data = Buffer.alloc(3);
+        data.writeUInt16BE(this.connection_id, 0);
+        data.writeUInt8(CloseConnectionStatus.CLOSED_BY_CLIENT, 0);
+
+        this.connection.send(MessageType.CLOSE_CONNECTION, data);
+        callback();
+    }
+
     _read(size: number) {
     }
 
     push(chunk: Buffer | string, encoding?: string) {
         this.bytesRead += chunk.length;
         return super.push(chunk, encoding);
+    }
+
+    write(buffer: string | Uint8Array, cb?: ((err?: Error | undefined) => void) | undefined): boolean;
+    write(str: string | Uint8Array, encoding?: string | undefined, cb?: ((err?: Error | undefined) => void) | undefined): boolean;
+    write(buffer: string | Uint8Array, encoding_cb?: string | ((err?: Error) => void), cb?: ((err?: Error) => void)): boolean {
+        if (typeof encoding_cb === 'function') cb = encoding_cb, encoding_cb = undefined;
+
+        return super.write(buffer, encoding_cb, cb ? (err?: Error | null) => {
+            cb!(err === null ? undefined : err);
+        } : undefined);
     }
 
     async _destroy(err: Error | null, callback: (err: Error | null) => void) {
@@ -432,12 +451,25 @@ export class ServiceConnection extends stream.Duplex {
         callback(null);
     }
 
-    connect() {}
-    setTimeout() {}
-    setNoDelay() {}
-    setKeepAlive() {}
-    ref() {}
-    unref() {}
+    connect(): this {
+        throw new Error('Service connection connect isn\'t supported');
+    }
+    setTimeout(): this {
+        // throw new Error('Service connection timeout isn\'t supported');
+        return this;
+    }
+    setNoDelay(): this {
+        throw new Error('Service connection no delay isn\'t supported');
+    }
+    setKeepAlive(): this {
+        throw new Error('Service connection keep alive isn\'t supported');
+    }
+    ref(): this {
+        throw new Error('Service connection ref/unref isn\'t supported');
+    }
+    unref(): this {
+        throw new Error('Service connection ref/unref isn\'t supported');
+    }
 
     get bufferSize() {
         return this.connection.socket.bufferSize;
@@ -447,12 +479,36 @@ export class ServiceConnection extends stream.Duplex {
         return false;
     }
 
-    address() {
-        return {
+    get _sock(): net.AddressInfo {
+        const value: net.AddressInfo = {
+            port: this.options.server_port,
+            family: this.options.server_address.indexOf(':') === -1 ? 'IPv4' : 'IPv6',
+            address: this.options.server_address,
+        };
+
+        return Object.defineProperty(this, '_sock', {
+            configurable: true,
+            enumerable: false,
+            value,
+        })._sock;
+    }
+
+    get _peer(): net.AddressInfo {
+        const value: net.AddressInfo = {
             port: this.options.remote_port,
             family: this.options.remote_address.indexOf(':') === -1 ? 'IPv4' : 'IPv6',
             address: this.options.remote_address,
         };
+
+        return Object.defineProperty(this, '_peer', {
+            configurable: true,
+            enumerable: false,
+            value,
+        })._peer;
+    }
+
+    address() {
+        return this._sock;
     }
 
     get localAddress() {
@@ -479,3 +535,49 @@ export class ServiceConnection extends stream.Duplex {
         return this.options.remote_port;
     }
 }
+
+declare module 'net' {
+    interface Socket {
+        _getsockname?(): net.AddressInfo | string | undefined;
+        _getpeername?(): net.AddressInfo | undefined;
+    }
+}
+
+/**
+ * Patch _getsockname and _getpeername to support getting addresses of service connections when wrapped by Node.js
+ * as a JSStreamSocket for TLS sockets.
+ */
+
+const socket_getsockname = net.Socket.prototype._getsockname;
+net.Socket.prototype._getsockname = function _getsockname(this: net.Socket & {
+    _handle?: /* TLSWrap */ {_parentWrap?: /* JSStreamSocket */ {stream?: ServiceConnection | unknown}};
+}) {
+    if (this._handle?._parentWrap?.stream instanceof ServiceConnection) {
+        return {
+            address: this._handle._parentWrap?.stream.localAddress,
+            family: this._handle._parentWrap?.stream.localFamily,
+            port: this._handle._parentWrap?.stream.localPort,
+        };
+    }
+
+    // @ts-ignore
+    return socket_getsockname.apply(this, arguments);
+};
+
+const socket_getpeername = net.Socket.prototype._getpeername;
+net.Socket.prototype._getpeername = function _getpeername(this: net.Socket & {
+    _handle?: /* TLSWrap */ {_parentWrap?: /* JSStreamSocket */ {stream?: ServiceConnection | unknown}};
+}) {
+    // console.debug('Called _getpeername', this._handle);
+
+    if (this._handle?._parentWrap?.stream instanceof ServiceConnection) {
+        return {
+            address: this._handle?._parentWrap?.stream.remoteAddress,
+            family: this._handle?._parentWrap?.stream.remoteFamily,
+            port: this._handle?._parentWrap?.stream.remotePort,
+        };
+    }
+
+    // @ts-ignore
+    return socket_getpeername.apply(this, arguments);
+};

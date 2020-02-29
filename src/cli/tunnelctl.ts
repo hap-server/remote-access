@@ -1,7 +1,7 @@
 import {DEFAULT_SERVER} from '../constants';
 import TunnelClient, {TunnelState} from '../client';
 import {ServiceConnection} from '../client/connection';
-import {MessageType, RegisterState, ServiceType, RegisterStatus, ListHostsHostnameType, AddHostStatus, RemoveHostStatus, ListHostsHostnameStatus} from '../common/message-types';
+import {MessageType, RegisterState, ServiceType, RegisterStatus, ListHostsHostnameType, AddHostStatus, RemoveHostStatus, ListHostsHostnameStatus, ConnectServiceStatus} from '../common/message-types';
 import * as net from 'net';
 import * as http from 'http';
 import * as https from 'https';
@@ -100,7 +100,8 @@ const client = new TunnelClient();
             err.code = status;
             throw err;
         } else {
-            const err = new Error('Unknown error' + (RegisterStatus[status] ? ' (' + RegisterStatus[status] + ')' : ''));
+            const err = new Error('Unknown error ' + status +
+                (RegisterStatus[status] ? ' (' + RegisterStatus[status] + ')' : ''));
             // @ts-ignore
             err.code = status;
             throw err;
@@ -187,6 +188,28 @@ const client = new TunnelClient();
 
         console.log('Connecting service', {auth, service_type, service_identifier, hostname});
         const status = await client.connectService(service_type, service_identifier, hostname);
+        if (status === ConnectServiceStatus.UNAUTHORISED) {
+            const err = new Error('This client is not authorised to use this hostname');
+            // @ts-ignore
+            err.code = status;
+            throw err;
+        } else if (status === ConnectServiceStatus.UNSUPPORTED_SERVICE) {
+            const err = new Error('This hostname is not supported by this service');
+            // @ts-ignore
+            err.code = status;
+            throw err;
+        } else if (status === ConnectServiceStatus.OTHER_CLIENT_CONNECTED) {
+            const err = new Error('Another client is already connected to this service');
+            // @ts-ignore
+            err.code = status;
+            throw err;
+        } else if (typeof status === 'number' && status !== ConnectServiceStatus.SUCCESS) {
+            const err = new Error('Unknown error ' + status +
+                (ConnectServiceStatus[status] ? ' (' + ConnectServiceStatus[status] + ')' : ''));
+            // @ts-ignore
+            err.code = status;
+            throw err;
+        }
 
         client.on('service-connection', (service_connection: ServiceConnection) => {
             console.log('New connection from %s port %d, server %s port %d',
@@ -199,13 +222,29 @@ const client = new TunnelClient();
         });
 
         const http_server = http.createServer((req, res) => {
-            res.end('It works!\n');
+            console.log('[%s] HTTP request from %s port %d (server %s port %d): %s %s', new Date(),
+                req.socket.remoteAddress, req.socket.remotePort, req.socket.localAddress, req.socket.localPort,
+                req.method, req.url);
+            res.setHeader('Content-Type', 'text/plain');
+            res.write('It works!\n');
+            res.write(`[${req.socket.remoteAddress}]:${req.socket.remotePort} - ` +
+                `[${req.socket.localAddress}]:${req.socket.localPort}\n`);
+            res.end();
         });
         const https_server = https.createServer({
             // cert: ...,
             // key: ...,
+            cert: await fs.readFile(path.join(__dirname, '..', '..', 'data', 'client-fullchain.pem')),
+            key: await fs.readFile(path.join(__dirname, '..', '..', 'data', 'client-privkey.pem')),
         }, (req, res) => {
-            res.end('It works!\n');
+            console.log('[%s] HTTPS request from %s port %d (server %s port %d): %s %s', new Date(),
+                req.socket.remoteAddress, req.socket.remotePort, req.socket.localAddress, req.socket.localPort,
+                req.method, req.url);
+            res.setHeader('Content-Type', 'text/plain');
+            res.write('It works!\n');
+            res.write(`[${req.socket.remoteAddress}]:${req.socket.remotePort} - ` +
+                `[${req.socket.localAddress}]:${req.socket.localPort}\n`);
+            res.end();
         });
         const http_https_server: net.Server = net.createServer(connection => {
             const data = connection.read(1);

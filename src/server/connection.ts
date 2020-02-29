@@ -339,15 +339,15 @@ export class ServiceConnection extends stream.Duplex {
             this.destroy(new ClosedByClientError('Disconnected'));
         };
 
-        const onend = () => {
+        const onclose = () => {
             connection.service_connections.delete(this.connection_id);
 
             connection.removeListener('close', onconnectionclose);
-            this.removeListener('close', onend);
+            this.removeListener('close', onclose);
         };
 
         connection.on('close', onconnectionclose);
-        this.on('close', onend);
+        this.on('close', onclose);
 
         connection.service_connections.set(this.connection_id, this);
     }
