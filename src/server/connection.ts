@@ -3,6 +3,7 @@ import * as net from 'net';
 import * as tls from 'tls';
 import * as stream from 'stream';
 import * as forge from 'node-forge';
+import * as ipaddr from 'ip6addr';
 
 import TunnelServer, {Service} from './index';
 import RegisterSession from './registration';
@@ -305,8 +306,8 @@ export default class Connection extends BaseConnection {
     createServiceConnection(service: Service, hostname: string, options: ServiceConnectionOptions) {
         const connection_id = this.next_service_connection_id++;
         const [service_type, service_identifier] = this.server.getServiceIdentifier(service)!;
-        const server_address = Buffer.alloc(16);
-        const remote_address = Buffer.alloc(16);
+        const server_address = ipaddr.parse(options.local_address).toBuffer();
+        const remote_address = ipaddr.parse(options.remote_address).toBuffer();
 
         const data = Buffer.alloc(46 + hostname.length);
 

@@ -12,6 +12,7 @@ import {
     MessageType, ServiceType, ConnectServiceStatus, DisconnectServiceStatus, CloseConnectionStatus,
 } from '../common/message-types';
 import * as nacl from 'tweetnacl';
+import {ipaddrFromBuffer} from '../common/util';
 
 export enum ConnectionProtocol {
     TUNNEL = 'ts:',
@@ -95,16 +96,17 @@ export default class Connection extends BaseConnection {
     private handleServiceConnection(data: Buffer) {
         const connection_id = data.readUInt16BE(0);
         const service_name_length = data.readUInt16BE(2);
+        const server_address = ipaddrFromBuffer(data.slice(4 + service_name_length, 20 + service_name_length));
+        const remote_address = ipaddrFromBuffer(data.slice(22 + service_name_length, 38 + service_name_length));
 
         const options = {
             service_type: data.readUInt16BE(4),
             service_identifier: data.readUInt16BE(6),
             hostname: data.slice(10, 4 + service_name_length).toString(),
 
-            // TODO: read server/remote client IP addresses
-            server_address: data.slice(4 + service_name_length, 20 + service_name_length).toString('hex'),
+            server_address: server_address.toString({format: server_address.kind() === 'ipv4' ? 'v4-mapped' : 'v6'}),
             server_port: data.readUInt16BE(20 + service_name_length),
-            remote_address: data.slice(22 + service_name_length, 38 + service_name_length).toString('hex'),
+            remote_address: remote_address.toString({format: server_address.kind() === 'ipv4' ? 'v4-mapped' : 'v6'}),
             remote_port: data.readUInt16BE(38 + service_name_length),
         };
 
@@ -448,14 +450,17 @@ export class ServiceConnection extends stream.Duplex {
     address() {
         return {
             port: this.options.remote_port,
-            family: 'IPv6',
-            address: '::ffff:0.0.0.0',
+            family: this.options.remote_address.indexOf(':') === -1 ? 'IPv4' : 'IPv6',
+            address: this.options.remote_address,
         };
     }
 
     get localAddress() {
-        // return this.options.server_address;
-        return '::ffff:0.0.0.0';
+        return this.options.server_address;
+    }
+
+    get localFamily() {
+        return this.options.server_address.indexOf(':') === -1 ? 'IPv4' : 'IPv6';
     }
 
     get localPort() {
@@ -463,8 +468,11 @@ export class ServiceConnection extends stream.Duplex {
     }
 
     get remoteAddress() {
-        // return this.options.remote_address;
-        return '::ffff:0.0.0.0';
+        return this.options.remote_address;
+    }
+
+    get remoteFamily() {
+        return this.options.remote_address.indexOf(':') === -1 ? 'IPv4' : 'IPv6';
     }
 
     get remotePort() {

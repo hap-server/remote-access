@@ -2,7 +2,7 @@ import TunnelServer, {ClientProvider, Service} from './server/index';
 import HttpService from './server/httpservice';
 import HttpsService from './server/httpsservice';
 import HttpHttpsService from './server/httphttpsservice';
-import LocalClientProvider from './server/localclientprovider';
+// import LocalClientProvider from './server/localclientprovider';
 
 export default TunnelServer;
 export {
@@ -11,7 +11,7 @@ export {
     HttpService,
     HttpsService,
     HttpHttpsService,
-    LocalClientProvider,
+    // LocalClientProvider,
 };
 
 export {

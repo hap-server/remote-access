@@ -55,7 +55,6 @@ const client = new TunnelClient();
             {
                 name: 'extensionRequest',
                 extensions: [],
-                ],
             },
         ]);
 
