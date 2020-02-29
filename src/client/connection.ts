@@ -1,5 +1,10 @@
 import {SERVICE_NAME} from '../constants';
 import BaseConnection from '../common/connection';
+import {
+    MessageType, ServiceType, ConnectServiceStatus, DisconnectServiceStatus, CloseConnectionStatus,
+} from '../common/message-types';
+import {ipaddrFromBuffer} from '../common/util';
+
 import * as net from 'net';
 import * as tls from 'tls';
 import {promises as dns, SrvRecord} from 'dns';
@@ -8,11 +13,7 @@ import {parse as parseQueryString, ParsedUrlQuery} from 'querystring';
 import {promises as fs} from 'fs';
 import * as path from 'path';
 import * as stream from 'stream';
-import {
-    MessageType, ServiceType, ConnectServiceStatus, DisconnectServiceStatus, CloseConnectionStatus,
-} from '../common/message-types';
 import * as nacl from 'tweetnacl';
-import {ipaddrFromBuffer} from '../common/util';
 
 export enum ConnectionProtocol {
     TUNNEL = 'ts:',

@@ -1,13 +1,18 @@
-import BaseConnection from '../common/connection';
 import * as net from 'net';
 import * as tls from 'tls';
 import * as stream from 'stream';
 import * as forge from 'node-forge';
 import * as ipaddr from 'ip6addr';
 
+import BaseConnection from '../common/connection';
 import TunnelServer, {Service} from './index';
 import RegisterSession from './registration';
-import {MessageType, CloseConnectionStatus, ServiceType, ConnectServiceStatus, DisconnectServiceStatus, ListHostsHostnameType, ListHostsHostnameStatus, AddHostStatus, RemoveHostStatus} from '../common/message-types';
+import {
+    MessageType, ServiceType,
+    ListHostsHostnameType, ListHostsHostnameStatus, AddHostStatus, RemoveHostStatus,
+    ConnectServiceStatus, DisconnectServiceStatus, CloseConnectionStatus,
+} from '../common/message-types';
+import {getCertificateFingerprint} from '../common/util';
 
 export interface ServiceConnectionOptions {
     local_address: string;
@@ -58,12 +63,7 @@ export default class Connection extends BaseConnection {
             // Convert an ASN.1 X.509x3 object to a Forge certificate
             const asn1 = forge.asn1.fromDer(this.peer_certificate.raw.toString('binary'));
             this.peer_certificate_forge = forge.pki.certificateFromAsn1(asn1);
-
-            const sha256 = forge.md.sha256.create();
-            // @ts-ignore
-            sha256.start();
-            sha256.update(forge.asn1.toDer(forge.pki.certificateToAsn1(this.peer_certificate_forge)).getBytes());
-            this.peer_fingerprint_sha256 = sha256.digest().toHex().replace(/(.{2})(?!$)/g, m => `${m}:`);
+            this.peer_fingerprint_sha256 = getCertificateFingerprint(this.peer_certificate_forge);
         } else {
             this.peer_certificate_forge = null;
             this.peer_fingerprint_sha256 = null;
@@ -130,6 +130,9 @@ export default class Connection extends BaseConnection {
         }
         if (type === MessageType.REMOVE_HOST) {
             this.removeHost(data.toString());
+        }
+        if (type === MessageType.LIST_DOMAINS) {
+            this.listDomains();
         }
 
         if (type === MessageType.LIST_SERVICES) {
@@ -233,6 +236,23 @@ export default class Connection extends BaseConnection {
         }
 
         this.send(MessageType.REMOVE_HOST, uint32BE(RemoveHostStatus.UNAUTHORISED));
+    }
+
+    async listDomains() {
+        const data: Buffer[] = [];
+
+        for (const client_provider of this.server.client_providers) {
+            for (const domain of client_provider.domains || []) {
+                const buffer = Buffer.alloc(domain.length + 4);
+
+                buffer.writeUInt32BE(domain.length, 0);
+                buffer.write(domain, 4);
+
+                data.push(buffer);
+            }
+        }
+
+        this.send(MessageType.LIST_DOMAINS, Buffer.concat(data));
     }
 
     async listServices(hostname: string | null) {
@@ -362,8 +382,7 @@ export class ServiceConnection extends stream.Duplex {
         callback();
     }
 
-    _read(size: number) {
-    }
+    _read(size: number) {}
 
     async _destroy(err: Error | null, callback: (err: Error | null) => void) {
         const status = !err ? CloseConnectionStatus.CLOSED_BY_REMOTE_CLIENT :

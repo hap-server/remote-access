@@ -1,13 +1,16 @@
 import {ClientProvider, HostnameDetails} from './index';
-import {RegisterStatus, UnregisterStatus, ServiceType, AddHostStatus, RemoveHostStatus, RevokeCertificateStatus} from '../common/message-types';
-import * as tls from 'tls';
+import {
+    ServiceType, RegisterStatus, UnregisterStatus, AddHostStatus, RemoveHostStatus, RevokeCertificateStatus,
+} from '../common/message-types';
+import Connection from './connection';
+import {CertificateIssuer} from './certificateissuer';
+import {getCertificateFingerprint} from '../common/util';
+
 import * as path from 'path';
 import * as sqlite from 'sqlite';
 import sql from 'sql-template-strings';
 import * as forge from 'node-forge';
 import {CertificationRequest} from '../types/node-forge';
-import Connection from './connection';
-import {CertificateIssuer} from './certificateissuer';
 
 interface EmailAddressVerifier {
     verifyEmailAddress(email_address: string, connection: Connection, csr: CertificationRequest): Promise<void>;
@@ -110,12 +113,7 @@ export default class SQLiteClientProvider implements ClientProvider {
         const [cert, ...issuer_chain] = await this.issuer.issueCertificateForRequest(csr);
         const cert_pem = forge.pki.certificateToPem(cert);
 
-        const sha256 = forge.md.sha256.create();
-        // @ts-ignore
-        sha256.start();
-        sha256.update(forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes());
-        const cert_fingerprint_sha256 =
-            (sha256.digest().toHex() as string).replace(/(.{2})(?!$)/g, m => `${m}:`);
+        const cert_fingerprint_sha256 = getCertificateFingerprint(cert);
 
         console.log('Issued certificate', cert_fingerprint_sha256, common_name);
 

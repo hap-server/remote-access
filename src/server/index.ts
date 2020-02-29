@@ -1,10 +1,9 @@
 import {EventEmitter} from 'events';
 import * as net from 'net';
 import * as tls from 'tls';
-import * as stream from 'stream';
-import Connection, {ServiceConnectionOptions} from './connection';
+import Connection from './connection';
 import {
-    MessageType, ServiceType,
+    ServiceType,
     RegisterStatus, UnregisterStatus,
     ListHostsHostnameStatus, AddHostStatus, RemoveHostStatus,
     ConnectServiceStatus, DisconnectServiceStatus, RevokeCertificateStatus,
@@ -12,7 +11,6 @@ import {
 
 export interface ClientProvider {
     domains?: string[];
-    // validateClientCertificate(cert: tls.PeerCertificate): Promise<string | Error>;
     registerClient(csr: string, connection: Connection): Promise<Buffer | RegisterStatus>;
     unregisterClient(connection: Connection): Promise<UnregisterStatus | null>;
     revokeCertificate(fingerprint_sha256: string, connection: Connection): Promise<RevokeCertificateStatus | null>;

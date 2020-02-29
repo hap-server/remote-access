@@ -1,4 +1,4 @@
-import TunnelServer, {Service} from '../server';
+import TunnelServer from '../server';
 import HttpService from '../server/httpservice';
 import HttpsService from '../server/httpsservice';
 import HttpHttpsService from '../server/httphttpsservice';

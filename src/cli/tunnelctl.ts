@@ -1,5 +1,5 @@
 import {DEFAULT_SERVER} from '../constants';
-import TunnelClient, {TunnelState} from '../client';
+import TunnelClient from '../client';
 import {ServiceConnection} from '../client/connection';
 import {MessageType, RegisterState, ServiceType, RegisterStatus, ListHostsHostnameType, AddHostStatus, RemoveHostStatus, ListHostsHostnameStatus, ConnectServiceStatus} from '../common/message-types';
 import * as net from 'net';
