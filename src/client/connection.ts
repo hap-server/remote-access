@@ -391,10 +391,7 @@ export class ServiceConnection extends stream.Duplex implements net.Socket {
             connection.removeListener('close', onconnectionclose);
             this.removeListener('close', onclose);
 
-            // If this is the last service connection on this connection it can be closed now
-            if (!connection.service_connections.size) {
-                connection.close();
-            }
+            connection.emit('close-service-connection', this);
         };
 
         connection.on('close', onconnectionclose);

@@ -91,6 +91,13 @@ export default class TunnelClient extends EventEmitter {
                                 this.old_connections.splice(index, 1);
                             }
                         });
+
+                        this.connection.on('close-service-connection', (service_connection: ServiceConnection) => {
+                            // If this is the last service connection on this connection it can be closed now
+                            if (this.connection !== connection && !connection.service_connections.size) {
+                                connection.close();
+                            }
+                        });
                     }
 
                     this.emit('connected');
