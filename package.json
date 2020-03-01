@@ -2,7 +2,6 @@
     "name": "@hap-server/remote-access",
     "version": "0.1.0",
     "description": "",
-    "private": true,
     "author": {
         "name": "Samuel Elliott",
         "url": "https://samuelthomas2774.github.io"
@@ -21,8 +20,8 @@
         "!dist/cli",
         "dist/cli/tunnelctl.*",
         "bin/tunnelctl",
-        "server.js",
-        "server.d.ts"
+        "server.*",
+        "client.*"
     ],
     "dependencies": {
         "http-headers": "^3.0.2",
@@ -41,5 +40,8 @@
     },
     "engines": {
         "@hap-server/hap-server": "^0.11.2"
+    },
+    "publishConfig": {
+        "access": "public"
     }
 }

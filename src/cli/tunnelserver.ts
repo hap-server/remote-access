@@ -9,7 +9,9 @@ import * as net from 'net';
 import * as path from 'path';
 import {promises as fs} from 'fs';
 
-(async ({data_path}) => {
+(async ({data_path, run_path}) => {
+    await fs.writeFile(path.join(run_path, 'tunnel-server.pid'), process.pid, 'utf-8');
+
     const tunnelserver = new TunnelServer();
 
     const clientprovider = await SQLiteClientProvider.create(path.join(data_path, 'clients.sqlite'));
@@ -137,4 +139,6 @@ import {promises as fs} from 'fs';
 })({
     data_path: process.argv[2] ? path.resolve(process.cwd(), process.argv[2]) :
         path.resolve(__dirname, '..', '..', 'data'),
+    run_path: process.argv[2] ? path.resolve(process.cwd(), process.argv[2]) :
+        path.resolve(__dirname, '..', '..'),
 });

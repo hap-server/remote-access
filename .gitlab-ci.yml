@@ -1,0 +1,62 @@
+image: node:13
+
+cache:
+    paths:
+        - node_modules/
+
+build:
+    stage: build
+    script:
+        - npm install
+        - npx tsc
+
+        - PACKAGE_PATH=`npm pack`
+        - mv $PACKAGE_PATH hap-server-remote-access.tgz
+    artifacts:
+        paths:
+            - dist
+            - hap-server-remote-access.tgz
+
+test-server:
+    stage: deploy
+    script:
+        # From https://docs.gitlab.com/ee/ci/ssh_keys/
+        - 'which ssh-agent || ( apt-get update && apt-get install openssh-client -y )'
+        - eval $(ssh-agent -s)
+        - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+        - mkdir -p ~/.ssh
+        - chmod 700 ~/.ssh
+        - echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+        - echo "$SSH_CONFIG" >> ~/.ssh/config
+        - chmod 644 ~/.ssh/known_hosts
+
+        - >
+            ssh test-server "mkdir -p $TEST_SERVER_DIRECTORY &&
+                cd $TEST_SERVER_DIRECTORY &&
+                mkdir -p data &&
+                ( rm -rf commit-$CI_COMMIT_SHA || true )
+            "
+
+        - scp -r $(pwd) test-server:$TEST_SERVER_DIRECTORY/commit-$CI_COMMIT_SHA
+
+        - >
+            ssh test-server "cd $TEST_SERVER_DIRECTORY/commit-$CI_COMMIT_SHA &&
+                ln -s ../data data
+                ( rm ../previous || true ) &&
+                ( mv ../current ../previous || true ) &&
+                ln -s commit-$CI_COMMIT_SHA ../current &&
+                ( kill \`cat ../previous/tunnel-server.pid\` || true )
+            "
+    environment: test-server
+    only:
+        refs:
+            - master
+        variables:
+            - $SSH_PRIVATE_KEY
+            - $SSH_KNOWN_HOSTS
+            - $SSH_CONFIG
+            - $TEST_SERVER_DIRECTORY
+    dependencies:
+        - build
+    cache:
+        policy: pull
