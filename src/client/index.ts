@@ -20,6 +20,8 @@ export default class TunnelClient extends EventEmitter {
     state = TunnelState.DISCONNECTED;
     target_state: TargetState = TunnelState.DISCONNECTED;
 
+    log: typeof import('@hap-server/api').log | import('@hap-server/api/homebridge').Logger | typeof console = console;
+
     get url() {
         return this._url;
     }
@@ -46,11 +48,7 @@ export default class TunnelClient extends EventEmitter {
         this._updating_state = true;
 
         while (this.state !== this.target_state) {
-            console.warn('Updating state');
-
             if (this.target_state === TunnelState.CONNECTED) {
-                console.warn('Connecting');
-
                 try {
                     if (this.connection && this.connection.url !== this.url) {
                         this.state = TunnelState.DISCONNECTING;
@@ -60,7 +58,9 @@ export default class TunnelClient extends EventEmitter {
 
                     if (!this.connection) {
                         this.state = TunnelState.CONNECTING;
-                        const connection = this.connection = await Connection.connect(this.url);
+                        const connection = this.connection = await Connection.connect(this.url, {
+                            log: this.log,
+                        });
 
                         for (const service_name of this.services) {
                             const header = Buffer.from(service_name);

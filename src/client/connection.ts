@@ -15,6 +15,10 @@ import * as path from 'path';
 import * as stream from 'stream';
 import * as nacl from 'tweetnacl';
 
+interface ConnectionOptions {
+    log?: typeof import('@hap-server/api').log | import('@hap-server/api/homebridge').Logger | typeof console;
+}
+
 export enum ConnectionProtocol {
     TUNNEL = 'ts:',
     SECURE_TUNNEL = 'tss:',
@@ -53,11 +57,14 @@ export default class Connection extends BaseConnection {
     readonly services: string[] = [];
     readonly service_connections = new Map<number, ServiceConnection>();
 
-    constructor(url: string, socket: net.Socket) {
+    log: typeof import('@hap-server/api').log | import('@hap-server/api/homebridge').Logger | typeof console = console;
+
+    constructor(url: string, socket: net.Socket, options?: ConnectionOptions) {
         super();
 
         this.url = url;
         this.socket = socket;
+        this.log = options?.log || console;
 
         socket.on('data', (data: Buffer) => {
             this.handleData(data);
@@ -79,7 +86,7 @@ export default class Connection extends BaseConnection {
     handleMessage(type: MessageType, data: Buffer) {
         this.emit('message', type, data);
 
-        console.warn('Received message', type, MessageType[type], data);
+        this.log[this.log === console ? 'warn' : 'debug']('Received message', type, MessageType[type], data);
 
         if (type === MessageType.CONNECTION) {
             this.handleServiceConnection(data);
@@ -157,7 +164,14 @@ export default class Connection extends BaseConnection {
      * @param {string} url Tunnel server URL
      * @param {number} [timeout=10000]
      */
-    static async connect(url: string, timeout = 10000) {
+    static async connect(url: string, options?: ConnectionOptions): Promise<Connection>
+    static async connect(url: string, timeout: number, options?: ConnectionOptions): Promise<Connection>
+    static async connect(url: string, _timeout: number | ConnectionOptions = 10000, options?: ConnectionOptions) {
+        if (typeof _timeout === 'object') options = _timeout;
+        const timeout = typeof _timeout === 'number' ? _timeout : 10000;
+
+        const console = options?.log || global.console;
+
         const serverinfo = await this.resolveServiceUrl(url);
         const hosts = 'hosts' in serverinfo ? serverinfo.hosts : [serverinfo];
 
@@ -165,7 +179,7 @@ export default class Connection extends BaseConnection {
 
         for (const host of hosts) {
             try {
-                console.warn('Trying %s port %d', host.host, host.port);
+                console[options?.log ? 'info' : 'warn']('Trying %s port %d', host.host, host.port);
 
                 const socket = await new Promise<net.Socket | tls.TLSSocket>((rs, rj) => {
                     const onconnect = () => {
@@ -191,7 +205,7 @@ export default class Connection extends BaseConnection {
                     socket.on('error', onerror);
                 });
 
-                const connection = new Connection(url, socket);
+                const connection = new Connection(url, socket, options);
 
                 return connection;
             } catch (err) {
@@ -202,7 +216,10 @@ export default class Connection extends BaseConnection {
         throw last_error;
     }
 
-    static async resolveServiceUrl(url: string): Promise<ServerInfo | MultipleHostServerInfo> {
+    static async resolveServiceUrl(
+        url: string, options?: ConnectionOptions
+    ): Promise<ServerInfo | MultipleHostServerInfo> {
+        const console = options?.log || global.console;
         const urldata = parseUrl(url);
 
         if (!urldata.hostname && !urldata.protocol && urldata.pathname) {
@@ -571,8 +588,6 @@ const socket_getpeername = net.Socket.prototype._getpeername;
 net.Socket.prototype._getpeername = function _getpeername(this: net.Socket & {
     _handle?: /* TLSWrap */ {_parentWrap?: /* JSStreamSocket */ {stream?: ServiceConnection | unknown}};
 }) {
-    // console.debug('Called _getpeername', this._handle);
-
     if (this._handle?._parentWrap?.stream instanceof ServiceConnection) {
         return {
             address: this._handle?._parentWrap?.stream.remoteAddress,

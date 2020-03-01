@@ -26,6 +26,7 @@ export class TunnelPlugin implements PlatformInstance {
     path = path.join(os.homedir(), '.homebridge', 'persist');
 
     proxy: net.Server | ProxyConfiguration;
+    log: import('@hap-server/api/homebridge').Logger | typeof console = console;
 
     constructor(config: any) {
         this.config = config;
@@ -35,6 +36,11 @@ export class TunnelPlugin implements PlatformInstance {
     static use(homebridge: HomebridgeAPI) {
         return class extends (this.constructor as typeof TunnelPlugin) {
             path = homebridge.user.persistPath();
+
+            constructor(config: any, log: import('@hap-server/api/homebridge').Logger) {
+                super(config);
+                this.log = log;
+            }
         };
     }
 
@@ -68,6 +74,7 @@ export class TunnelPlugin implements PlatformInstance {
     readonly tunnel_client = (() => {
         const tunnel_client = new TunnelClient();
 
+        tunnel_client.log = this.log;
         tunnel_client.url = 'ts://127.0.0.1:9000';
 
         tunnel_client.on('service-connection', (service_connection: ServiceConnection) => {

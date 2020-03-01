@@ -25,6 +25,7 @@ export class TunnelPlugin extends ServerPlugin {
     readonly tunnel_client = (() => {
         const tunnel_client = new TunnelClient();
 
+        tunnel_client.log = log;
         tunnel_client.url = 'ts://127.0.0.1:9000';
 
         tunnel_client.on('service-connection', (service_connection: ServiceConnection) => {
