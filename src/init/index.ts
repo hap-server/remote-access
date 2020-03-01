@@ -1,7 +1,9 @@
 try {
-    require('./init/hap-server');
-} catch (err) {}
+    require('./hap-server');
+} catch (err) {
+    console.error('Error loading @hap-server/remote-access as a hap-server plugin', err);
+}
 
 export default function (...args: any[]) {
-    require('./init/homebridge').default(...args);
+    require('./homebridge').default(...args);
 }

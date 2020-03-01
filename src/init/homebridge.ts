@@ -4,7 +4,7 @@ import {API as HomebridgeAPI, PlatformInstance} from 'homebridge/lib/api';
 
 import TunnelClient, {TunnelState} from '../client';
 import {ServiceConnection} from '../client/connection';
-import {MessageType, ServiceType} from '../common/message-types';
+import {MessageType, ServiceType, AddHostStatus} from '../common/message-types';
 import * as net from 'net';
 import * as tls from 'tls';
 import * as fs from 'fs';
@@ -115,13 +115,16 @@ export class TunnelPlugin implements PlatformInstance {
                 hostname: string;
             } | null = JSON.parse(
                 await fs.promises.readFile(service_path, 'utf-8')
-            )?.value || null
+            )?.value || null;
+
             if (!service) {
                 await this.tunnel_client.connect();
                 const connection = this.tunnel_client.connection!;
-                connection?.send(MessageType.LIST_DOMAINS, Buffer.alloc(0));
+
+                // Get the domains for this tunnel server
+                connection.send(MessageType.LIST_DOMAINS, Buffer.alloc(0));
                 let [, remaining_domains_data] =
-                    await connection!.waitForMessage(type => type === MessageType.LIST_DOMAINS);
+                    await connection.waitForMessage(type => type === MessageType.LIST_DOMAINS);
                 const domains: string[] = [];
                 while (remaining_domains_data.length) {
                     if (remaining_domains_data.length < 4) continue;
@@ -137,6 +140,20 @@ export class TunnelPlugin implements PlatformInstance {
                 if (domains.length >= 2) {
                     throw new Error('Tunnel server offers more than one domain. You need to configure it manually.');
                 }
+
+                // Register a hostname for this server
+                connection.send(MessageType.ADD_HOST, Buffer.from(server_uuid + '.' + domains[0]));
+                const [, data] = await connection.waitForMessage(type => type === MessageType.ADD_HOST);
+                const status: AddHostStatus = data.readUInt32BE(0);
+                
+                if (status !== AddHostStatus.SUCCESS) {
+                    const error = new Error('Error registering hostname ' + status +
+                        (AddHostStatus[status] ? ' (' + AddHostStatus[status] + ')' : ''));
+                    // @ts-ignore
+                    error.code = status;
+                    throw error;
+                }
+
                 await fs.promises.writeFile(service_path, JSON.stringify({
                     key: 'TunnelServiceConfiguration.' + server_uuid,
                     value: service = {
