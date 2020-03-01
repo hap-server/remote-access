@@ -1,7 +1,10 @@
-import {DEFAULT_SERVER} from '../constants';
-import TunnelClient from '../client';
-import {ServiceConnection} from '../client/connection';
-import {MessageType, RegisterState, ServiceType, RegisterStatus, ListHostsHostnameType, AddHostStatus, RemoveHostStatus, ListHostsHostnameStatus, ConnectServiceStatus} from '../common/message-types';
+import TunnelClient, {
+    ServiceConnection,
+    DEFAULT_SERVER,
+    MessageType, RegisterState, ServiceType, RegisterStatus, ListHostsHostnameType,
+    AddHostStatus, RemoveHostStatus, ListHostsHostnameStatus, ConnectServiceStatus,
+ } from '../client';
+
 import * as net from 'net';
 import * as http from 'http';
 import * as https from 'https';

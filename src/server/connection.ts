@@ -207,6 +207,11 @@ export default class Connection extends BaseConnection {
     }
 
     async addHost(hostname: string) {
+        if (this.server.readonly) {
+            this.send(MessageType.ADD_HOST, Buffer.from([AddHostStatus.UNKNOWN_ERROR]));
+            return;
+        }
+
         for (const client_provider of this.server.client_providers) {
             try {
                 const status = await client_provider.addHostname(hostname, this);
@@ -223,6 +228,11 @@ export default class Connection extends BaseConnection {
     }
 
     async removeHost(hostname: string) {
+        if (this.server.readonly) {
+            this.send(MessageType.REMOVE_HOST, Buffer.from([RemoveHostStatus.UNAUTHORISED]));
+            return;
+        }
+
         for (const client_provider of this.server.client_providers) {
             try {
                 const status = await client_provider.removeHostname(hostname, this);

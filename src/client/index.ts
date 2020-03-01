@@ -16,6 +16,7 @@ export type TargetState = TunnelState.DISCONNECTED | TunnelState.CONNECTED;
 export default class TunnelClient extends EventEmitter {
     private _url = DEFAULT_SERVER;
     connection: Connection | null = null;
+    old_connections: Connection[] = [];
     state = TunnelState.DISCONNECTED;
     target_state: TargetState = TunnelState.DISCONNECTED;
 
@@ -59,7 +60,7 @@ export default class TunnelClient extends EventEmitter {
 
                     if (!this.connection) {
                         this.state = TunnelState.CONNECTING;
-                        this.connection = await Connection.connect(this.url);
+                        const connection = this.connection = await Connection.connect(this.url);
 
                         for (const service_name of this.services) {
                             const header = Buffer.from(service_name);
@@ -71,7 +72,7 @@ export default class TunnelClient extends EventEmitter {
                         }
 
                         this.connection.on('message', (type, data) => {
-                            this.handleMessage(type, data);
+                            this.handleMessage(type, data, connection);
                         });
 
                         this.connection.on('service-connection', (service_connection: ServiceConnection) => {
@@ -79,9 +80,16 @@ export default class TunnelClient extends EventEmitter {
                         });
 
                         this.connection.on('close', () => {
-                            this.connection = null;
-                            this.state = TunnelState.DISCONNECTED;
-                            this._updateState();
+                            if (this.connection === connection) {
+                                this.connection = null;
+                                this.state = TunnelState.DISCONNECTED;
+                                this._updateState();
+                            }
+
+                            const index = this.old_connections.indexOf(connection);
+                            if (index !== -1) {
+                                this.old_connections.splice(index, 1);
+                            }
                         });
                     }
 
@@ -138,7 +146,18 @@ export default class TunnelClient extends EventEmitter {
         });
     }
 
-    handleMessage(type: MessageType, data: Buffer) {
+    handleMessage(type: MessageType, data: Buffer, connection: Connection) {
+        if (type === MessageType.RECONNECT && this.connection === connection) {
+            this.old_connections.push(connection);
+
+            this.connection = null;
+            this.state = TunnelState.RECONNECT;
+            this._updateState();
+
+            // If there are no service connections on this connection it can be closed now
+            if (!connection.service_connections.size) connection.close();
+        }
+
         //
     }
 

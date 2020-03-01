@@ -1,5 +1,7 @@
 import Connection from './connection';
-import {MessageType, RegisterState, RegisterStatus, RevokeCertificateStatus} from '../common/message-types';
+import {
+    MessageType, RegisterState, RegisterStatus, UnregisterStatus, RevokeCertificateStatus, RenewRegistrationStatus,
+} from '../common/message-types';
 
 type RegisterMessageType = MessageType.REGISTER | MessageType.UNREGISTER |
     MessageType.RENEW_REGISTRATION | MessageType.REVOKE_CERTIFICATE;
@@ -46,7 +48,7 @@ export default class RegisterSession {
     }
 
     async handleRegisterM1(data: Buffer) {
-        if (!this.connection.server.register_client_provider) {
+        if (this.connection.server.readonly || !this.connection.server.register_client_provider) {
             this.connection.send(MessageType.REGISTER, Buffer.concat([
                 Buffer.from([RegisterState.M2]),
                 Buffer.from([RegisterStatus.NOT_ACCEPTING_REGISTRATIONS]),
@@ -85,6 +87,11 @@ export default class RegisterSession {
     }
 
     async unregister() {
+        if (this.connection.server.readonly) {
+            this.connection.send(MessageType.UNREGISTER, Buffer.from([UnregisterStatus.UNAUTHORISED]));
+            return;
+        }
+
         for (const client_provider of this.connection.server.client_providers) {
             try {
                 const status = await client_provider.unregisterClient(this.connection);
@@ -97,7 +104,7 @@ export default class RegisterSession {
             }
         }
 
-        this.connection.send(MessageType.UNREGISTER, Buffer.from([RevokeCertificateStatus.UNAUTHORISED]));
+        this.connection.send(MessageType.UNREGISTER, Buffer.from([UnregisterStatus.UNAUTHORISED]));
     }
 
     handleRenewRegistrationMessage(data: Buffer) {
@@ -105,6 +112,11 @@ export default class RegisterSession {
     }
 
     async renewRegistration() {
+        if (this.connection.server.readonly) {
+            this.connection.send(MessageType.RENEW_REGISTRATION, Buffer.from([RenewRegistrationStatus.UNKNOWN_ERROR]));
+            return;
+        }
+
         // TODO
     }
 
@@ -113,6 +125,11 @@ export default class RegisterSession {
     }
 
     async revokeCertificate(sha256: Buffer) {
+        if (this.connection.server.readonly) {
+            this.connection.send(MessageType.REVOKE_CERTIFICATE, Buffer.from([RevokeCertificateStatus.UNAUTHORISED]));
+            return;
+        }
+
         const fingerprint_sha256 = sha256.toString('hex').replace(/(.{2})(?!$)/g, m => `${m}:`);
 
         for (const client_provider of this.connection.server.client_providers) {

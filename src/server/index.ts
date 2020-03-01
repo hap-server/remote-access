@@ -3,7 +3,7 @@ import * as net from 'net';
 import * as tls from 'tls';
 import Connection from './connection';
 import {
-    ServiceType,
+    MessageType, ServiceType,
     RegisterStatus, UnregisterStatus,
     ListHostsHostnameStatus, AddHostStatus, RemoveHostStatus,
     ConnectServiceStatus, DisconnectServiceStatus, RevokeCertificateStatus,
@@ -41,6 +41,8 @@ export default class TunnelServer extends EventEmitter {
 
     readonly services = new Map<ServiceType, Map<number, Service>>();
     readonly service_types = new Map<Service, [ServiceType, number]>();
+
+    readonly = false;
 
     createServer(options: net.ListenOptions) {
         const server = net.createServer(socket => {
@@ -157,5 +159,13 @@ export default class TunnelServer extends EventEmitter {
 
     getServiceIdentifier(service: Service) {
         return this.service_types.get(service) || null;
+    }
+
+    shutdown() {
+        this.readonly = true;
+
+        for (const connection of this.connections) {
+            connection.send(MessageType.RECONNECT, Buffer.alloc(0));
+        }
     }
 }

@@ -2,6 +2,9 @@ import TunnelServer, {ClientProvider, Service} from './server/index';
 import HttpService from './server/httpservice';
 import HttpsService from './server/httpsservice';
 import HttpHttpsService from './server/httphttpsservice';
+import AcmeHttp01Service from './server/acme-http01-service';
+import SQLiteClientProvider from './server/sqliteclientprovider';
+import DefaultCertificateIssuer, {CertificateIssuer} from './server/certificateissuer';
 
 export default TunnelServer;
 export {
@@ -10,15 +13,18 @@ export {
     HttpService,
     HttpsService,
     HttpHttpsService,
+    AcmeHttp01Service,
+    SQLiteClientProvider,
+    CertificateIssuer,
+    DefaultCertificateIssuer,
 };
 
-export {
-    DEFAULT_HTTP_SERVICE_IDENTIFIER,
-    DEFAULT_HTTPS_SERVICE_IDENTIFIER,
-} from './constants';
+export * from './constants';
 export {
     RegisterStatus,
     UnregisterStatus,
+    RenewRegistrationStatus,
+    RevokeCertificateStatus,
     ListHostsHostnameStatus,
     AddHostStatus,
     RemoveHostStatus,

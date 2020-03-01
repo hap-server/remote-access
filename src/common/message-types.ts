@@ -4,6 +4,7 @@
 export enum MessageType {
     PROTOCOL_VERSION                        = 0x00,
     PING                                    = 0x01,
+    RECONNECT                               = 0x02,
 
     REGISTER                                = 0x10,
     UNREGISTER                              = 0x11,

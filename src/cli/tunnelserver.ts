@@ -1,15 +1,13 @@
-import TunnelServer from '../server';
-import HttpService from '../server/httpservice';
-import HttpsService from '../server/httpsservice';
-import HttpHttpsService from '../server/httphttpsservice';
-import {DEFAULT_HTTP_SERVICE_IDENTIFIER, DEFAULT_HTTPS_SERVICE_IDENTIFIER} from '../constants';
-import {ServiceType} from '../common/message-types';
+import TunnelServer, {
+    HttpService, HttpsService, HttpHttpsService,
+    SQLiteClientProvider, DefaultCertificateIssuer as CertificateIssuer,
+    DEFAULT_HTTP_SERVICE_IDENTIFIER, DEFAULT_HTTPS_SERVICE_IDENTIFIER,
+    ServiceType,
+} from '../server';
+
 import * as net from 'net';
 import * as path from 'path';
-import * as fs from 'fs';
-
-import SQLiteClientProvider from '../server/sqliteclientprovider';
-import CertificateIssuer from '../server/certificateissuer';
+import {promises as fs} from 'fs';
 
 (async ({data_path}) => {
     const tunnelserver = new TunnelServer();
@@ -22,7 +20,7 @@ import CertificateIssuer from '../server/certificateissuer';
         path.join(data_path, 'root-cert.pem')
     );
 
-    certissuer.log = await fs.promises.open(path.join(data_path, 'clientcerts.pem'), 'a');
+    certissuer.log = await fs.open(path.join(data_path, 'clientcerts.pem'), 'a');
 
     clientprovider.issuer = certissuer;
 
@@ -92,16 +90,16 @@ import CertificateIssuer from '../server/certificateissuer';
 
     const secureserver = await tunnelserver.createSecureServer({
         cert: Buffer.concat(await Promise.all([
-            fs.promises.readFile(path.join(data_path, 'server-cert.pem')),
-            fs.promises.readFile(path.join(data_path, 'intermediate-cert.pem')),
-            fs.promises.readFile(path.join(data_path, 'root-cert.pem')),
+            fs.readFile(path.join(data_path, 'server-cert.pem')),
+            fs.readFile(path.join(data_path, 'intermediate-cert.pem')),
+            fs.readFile(path.join(data_path, 'root-cert.pem')),
         ])),
-        key: await fs.promises.readFile(path.join(data_path, 'server-privkey.pem')),
+        key: await fs.readFile(path.join(data_path, 'server-privkey.pem')),
         requestCert: true,
         rejectUnauthorized: false,
         ca: Buffer.concat(await Promise.all([
-            fs.promises.readFile(path.join(data_path, 'issuer-cert.pem')),
-            fs.promises.readFile(path.join(data_path, 'root-cert.pem')),
+            fs.readFile(path.join(data_path, 'issuer-cert.pem')),
+            fs.readFile(path.join(data_path, 'root-cert.pem')),
         ])),
     }, {
         host: '::',
@@ -123,6 +121,19 @@ import CertificateIssuer from '../server/certificateissuer';
     secureserver.on('secureConnection', socket => {
         console.log('[TS] New secure connection from %s port %s', socket.remoteAddress, socket.remotePort);
     });
+
+    process.on('SIGTERM', () => {
+        console.log('Received SIGTERM, closing all listening sockets and asking clients to reconnect');
+        http_service.server.close();
+        https_service.server.close();
+        httphttps_service.server.close();
+        server.close();
+        secureserver.close();
+        tunnelserver.shutdown();
+    });
+
+    // @ts-ignore
+    global.tunnelserver = tunnelserver, global.http_service = http_service, global.https_service = https_service, global.httphttps_service = httphttps_service, global.server = server, global.secureserver = secureserver;
 })({
     data_path: process.argv[2] ? path.resolve(process.cwd(), process.argv[2]) :
         path.resolve(__dirname, '..', '..', 'data'),
