@@ -41,7 +41,8 @@ test-server:
 
         - >
             ssh test-server "cd $TEST_SERVER_DIRECTORY/commit-$CI_COMMIT_SHA &&
-                ln -s ../data data
+                npm install &&
+                ln -s ../data data &&
                 ( rm ../previous || true ) &&
                 ( mv ../current ../previous || true ) &&
                 ln -s commit-$CI_COMMIT_SHA ../current &&

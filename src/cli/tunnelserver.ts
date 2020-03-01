@@ -7,10 +7,11 @@ import TunnelServer, {
 
 import * as net from 'net';
 import * as path from 'path';
-import {promises as fs} from 'fs';
+import {promises as fs, unlinkSync} from 'fs';
 
 (async ({data_path, run_path}) => {
     await fs.writeFile(path.join(run_path, 'tunnel-server.pid'), process.pid, 'utf-8');
+    let deleted_pid = false;
 
     const tunnelserver = new TunnelServer();
 
@@ -124,7 +125,7 @@ import {promises as fs} from 'fs';
         console.log('[TS] New secure connection from %s port %s', socket.remoteAddress, socket.remotePort);
     });
 
-    process.on('SIGTERM', () => {
+    process.on('SIGTERM', async () => {
         console.log('Received SIGTERM, closing all listening sockets and asking clients to reconnect');
         http_service.server.close();
         https_service.server.close();
@@ -132,6 +133,12 @@ import {promises as fs} from 'fs';
         server.close();
         secureserver.close();
         tunnelserver.shutdown();
+
+        await fs.unlink(path.join(run_path, 'tunnel-server.pid'));
+        deleted_pid = true;
+    });
+    process.on('exit', () => {
+        if (!deleted_pid) unlinkSync(path.join(run_path, 'tunnel-server.pid')), deleted_pid = true;
     });
 
     // @ts-ignore
