@@ -57,6 +57,12 @@ export default class Connection extends BaseConnection {
     readonly services: string[] = [];
     readonly service_connections = new Map<number, ServiceConnection>();
 
+    private last_received_data = Date.now();
+    private _sendPing = this.send.bind(this, MessageType.PING, Buffer.alloc(0));
+    private send_ping_timeout = setTimeout(this._sendPing, 30000);
+    private _handleConnectionTimeout = this.handleConnectionTimeout.bind(this);
+    private connection_timeout = setTimeout(this._handleConnectionTimeout, 60000);
+
     log: typeof import('@hap-server/api').log | import('@hap-server/api/homebridge').Logger | typeof console = console;
 
     constructor(url: string, socket: net.Socket, options?: ConnectionOptions) {
@@ -68,10 +74,19 @@ export default class Connection extends BaseConnection {
 
         socket.on('data', (data: Buffer) => {
             this.handleData(data);
+
+            this.last_received_data = Date.now();
+            clearTimeout(this.send_ping_timeout);
+            this.send_ping_timeout = setTimeout(this._sendPing, 30000);
+            clearTimeout(this.connection_timeout);
+            this.connection_timeout = setTimeout(this._handleConnectionTimeout, 60000);
         });
 
         socket.on('end', () => {
             this.emit('close');
+
+            clearTimeout(this.send_ping_timeout);
+            clearTimeout(this.connection_timeout);
         });
     }
 
@@ -81,6 +96,11 @@ export default class Connection extends BaseConnection {
 
     protected _write(data: Buffer) {
         this.socket.write(data);
+
+        clearTimeout(this.send_ping_timeout);
+        this.send_ping_timeout = setTimeout(this._sendPing, 30000);
+        clearTimeout(this.connection_timeout);
+        this.connection_timeout = setTimeout(this._handleConnectionTimeout, 60000);
     }
 
     handleMessage(type: MessageType, data: Buffer) {
@@ -99,6 +119,12 @@ export default class Connection extends BaseConnection {
             const connection_id = data.readUInt16BE(0);
             this.service_connections.get(connection_id)?.destroy();
         }
+    }
+
+    handleConnectionTimeout() {
+        this.log.error('Connection timed out');
+
+        this.socket.destroy();
     }
 
     private handleServiceConnection(data: Buffer) {

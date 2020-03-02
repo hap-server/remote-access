@@ -39,6 +39,10 @@ export default class Connection extends BaseConnection {
     readonly server_socket: net.Server | tls.Server;
     readonly socket: net.Socket | tls.TLSSocket;
 
+    private last_received_data = Date.now();
+    private _handleConnectionTimeout = this.handleConnectionTimeout.bind(this);
+    private connection_timeout = setTimeout(this._handleConnectionTimeout, 60000);
+
     readonly peer_certificate: tls.PeerCertificate | null;
     readonly peer_certificate_forge: forge.pki.Certificate | null;
     readonly peer_fingerprint_sha256: string | null;
@@ -71,10 +75,16 @@ export default class Connection extends BaseConnection {
 
         socket.on('data', (data: Buffer) => {
             this.handleData(data);
+
+            this.last_received_data = Date.now();
+            clearTimeout(this.connection_timeout);
+            this.connection_timeout = setTimeout(this._handleConnectionTimeout, 60000);
         });
 
         socket.on('end', () => {
             this.emit('close');
+
+            clearTimeout(this.connection_timeout);
 
             this.register_session?.handleConnectionClosed();
 
@@ -100,6 +110,9 @@ export default class Connection extends BaseConnection {
 
     protected _write(data: Buffer) {
         this.socket.write(data);
+
+        clearTimeout(this.connection_timeout);
+        this.connection_timeout = setTimeout(this._handleConnectionTimeout, 60000);
     }
 
     handleMessage(type: MessageType, data: Buffer) {
@@ -159,6 +172,12 @@ export default class Connection extends BaseConnection {
             const connection_id = data.readUInt16BE(0);
             this.service_connections.get(connection_id)?.push(data.slice(2));
         }
+    }
+
+    handleConnectionTimeout() {
+        console.warn('Connection from %s port %d timed out', this.socket.remoteAddress, this.socket.remotePort);
+
+        this.socket.destroy();
     }
 
     async listHosts() {
