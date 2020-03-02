@@ -98,6 +98,13 @@ export default class Connection extends BaseConnection {
                 service?.disconnect(hostname, this, true);
             }
         });
+
+        (socket as net.Socket).on('error', err => {
+            console.error('Socket error for connection from %s port %d:',
+                socket.remoteAddress, socket.remotePort, err);
+
+            socket.destroy();
+        });
     }
 
     get encrypted() {
