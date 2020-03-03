@@ -4,6 +4,8 @@ import {MessageType} from '../common/message-types';
 export default abstract class Connection extends EventEmitter {
     protected buffer = Buffer.alloc(0);
 
+    log: typeof import('@hap-server/api').log | import('@hap-server/api/homebridge').Logger | typeof console = console;
+
     abstract close(): void;
 
     handleData(chunk: Buffer) {

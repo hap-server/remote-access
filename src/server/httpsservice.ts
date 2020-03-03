@@ -135,13 +135,13 @@ export default class HttpService implements Service {
             socket.on('close', () => tunnel_socket.destroy());
             tunnel_socket.on('close', () => socket.destroy());
         };
-        const onend = () => {
+        const onclose = () => {
             this.connections.splice(this.connections.indexOf(socket), 1);
             socket.removeListener('data', ondata);
-            socket.removeListener('end', onend);
+            socket.removeListener('close', onclose);
         };
 
         socket.on('data', ondata);
-        socket.on('end', onend);
+        socket.on('close', onclose);
     }
 }

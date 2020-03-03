@@ -218,14 +218,14 @@ export default class HttpHttpsService implements Service {
                     hostname, socket.remoteAddress, socket.remotePort, err);
             });
         };
-        const onend = () => {
+        const onclose = () => {
             this.connections.splice(this.connections.indexOf(socket), 1);
             socket.removeListener('data', ondata);
-            socket.removeListener('end', onend);
+            socket.removeListener('close', onclose);
         };
 
         socket.on('data', ondata);
-        socket.on('end', onend);
+        socket.on('close', onclose);
     }
 
     private buildHttpResponseHeaders(...all_headers: Record<string, string | string[]>[]) {

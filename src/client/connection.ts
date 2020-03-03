@@ -63,8 +63,6 @@ export default class Connection extends BaseConnection {
     private _handleConnectionTimeout = this.handleConnectionTimeout.bind(this);
     private connection_timeout = setTimeout(this._handleConnectionTimeout, 60000);
 
-    log: typeof import('@hap-server/api').log | import('@hap-server/api/homebridge').Logger | typeof console = console;
-
     constructor(url: string, socket: net.Socket, options?: ConnectionOptions) {
         super();
 
@@ -101,6 +99,11 @@ export default class Connection extends BaseConnection {
         this.send_ping_timeout = setTimeout(this._sendPing, 30000);
         clearTimeout(this.connection_timeout);
         this.connection_timeout = setTimeout(this._handleConnectionTimeout, 60000);
+    }
+
+    send(type: MessageType, data: Buffer) {
+        this.log[this.log === console ? 'warn' : 'debug']('Sending message %d %s', type, MessageType[type], data);
+        return super.send(type, data);
     }
 
     handleMessage(type: MessageType, data: Buffer) {
