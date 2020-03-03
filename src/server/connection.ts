@@ -81,7 +81,7 @@ export default class Connection extends BaseConnection {
             this.connection_timeout = setTimeout(this._handleConnectionTimeout, 60000);
         });
 
-        socket.on('end', () => {
+        socket.on('close', () => {
             this.emit('close');
 
             clearTimeout(this.connection_timeout);
@@ -99,7 +99,7 @@ export default class Connection extends BaseConnection {
             }
         });
 
-        (socket as net.Socket).on('error', err => {
+        socket.on('error', err => {
             console.error('Socket error for connection from %s port %d:',
                 socket.remoteAddress, socket.remotePort, err);
 

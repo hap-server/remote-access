@@ -82,7 +82,7 @@ export default class Connection extends BaseConnection {
             this.connection_timeout = setTimeout(this._handleConnectionTimeout, 60000);
         });
 
-        socket.on('end', () => {
+        socket.on('close', () => {
             this.emit('close');
 
             clearTimeout(this.send_ping_timeout);
