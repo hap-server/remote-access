@@ -1,6 +1,6 @@
 /// <reference types="@hap-server/hap-server/types/homebridge" />
 
-import {API as HomebridgeAPI, PlatformInstance} from 'homebridge/lib/api';
+import {API as HomebridgeAPI, PlatformInstance, AccessoryInstance} from 'homebridge/lib/api';
 
 import TunnelClient, {TunnelState} from '../client';
 import {ServiceConnection} from '../client/connection';
@@ -206,10 +206,15 @@ export class TunnelPlugin implements PlatformInstance {
 
         this.tunnel_client.setTargetState(TunnelState.CONNECTED);
     }
-    
-    accessories() {
+
+    accessories(callback: (accessories: AccessoryInstance[]) => void) {
         this.accessories = () => {};
-        this.load();
+        this.load().then(() => {
+            callback([]);
+        }, err => {
+            callback([]);
+            this.log.error('Error loading tunnel service', err);
+        });
     }
 
     secure_context: Promise<tls.SecureContext> | null = null;
