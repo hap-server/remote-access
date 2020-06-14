@@ -13,7 +13,7 @@ build:
         - PACKAGE_PATH=`npm --color="always" pack`
         - mv $PACKAGE_PATH hap-server-remote-access.tgz
 
-        - cd packages/homebridge
+        - cd packages/homebridge-remote-access
         - node -e "fs.writeFileSync('package.json', JSON.stringify((p => (p.version = require('../../package').version, p.peerDependencies['@hap-server/remote-access'] = require('../../package').version, p))(JSON.parse(fs.readFileSync('package.json', 'utf-8'))), null, 4) + '\n', 'utf-8')"
         - PACKAGE_PATH=`npm --color="always" pack`
         - mv $PACKAGE_PATH ../../homebridge-remote-access.tgz
@@ -24,7 +24,7 @@ build:
             - package-lock.json
             - tsconfig.json
             - src/**/*
-            - packages/homebridge/**/*
+            - packages/homebridge-remote-access/**/*
     except:
         variables:
             - $NPM_AUDIT_SCHEDULE_SKIP_BUILD
@@ -61,7 +61,7 @@ publish-npm:
         - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
         - npm --color="always" publish
 
-        - cd packages/homebridge
+        - cd packages/homebridge-remote-access
         - node -e "fs.writeFileSync('package.json', JSON.stringify((p => (p.version = require('../../package').version, p.peerDependencies['@hap-server/remote-access'] = require('../../package').version, p))(JSON.parse(fs.readFileSync('package.json', 'utf-8'))), null, 4) + '\n', 'utf-8')"
         - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
         - npm --color="always" publish
@@ -85,7 +85,7 @@ publish-github:
         - echo "//npm.pkg.github.com/:_authToken=${GITHUB_NPM_TOKEN}" > .npmrc
         - npm --color="always" --registry=https://npm.pkg.github.com/ publish
 
-        - cd packages/homebridge
+        - cd packages/homebridge-remote-access
         - node -e "fs.writeFileSync('package.json', JSON.stringify((p => (p.version = require('../../package').version, p.peerDependencies['@hap-server/remote-access'] = require('../../package').version, p))(JSON.parse(fs.readFileSync('package.json', 'utf-8'))), null, 4) + '\n', 'utf-8')"
         - echo "//npm.pkg.github.com/:_authToken=${GITHUB_NPM_TOKEN}" > .npmrc
         - npm --color="always" --registry=https://npm.pkg.github.com/ publish
@@ -109,7 +109,7 @@ publish-gitlab:
         - echo "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/npm/:_authToken=${CI_JOB_TOKEN}" | sed s/^https:// > .npmrc
         - npm --color="always" --registry=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/npm/ publish
 
-        - cd packages/homebridge
+        - cd packages/homebridge-remote-access
         - node -e "fs.writeFileSync('package.json', JSON.stringify((p => (p.version = require('../../package').version, p.peerDependencies['@hap-server/remote-access'] = require('../../package').version, p))(JSON.parse(fs.readFileSync('package.json', 'utf-8'))), null, 4) + '\n', 'utf-8')"
         - cp ../../.npmrc .
         - npm --color="always" --registry=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/npm/ publish
