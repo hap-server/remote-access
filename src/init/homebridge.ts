@@ -120,6 +120,10 @@ export class TunnelPlugin implements PlatformInstance {
             this.tunnel_client.url = this.url = this.config.server;
         }
 
+        if (!this.hostname && this.config.hostname) {
+            this.tunnel_client.connectService(ServiceType.HTTPS, 0, this.hostname = this.config.hostname);
+        }
+
         if (!this.hostname) {
             const server_uuid_path = path.join(this.path, 'TunnelServiceServerUUID');
 
