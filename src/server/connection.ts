@@ -360,7 +360,7 @@ export default class Connection extends BaseConnection {
     }
 
     createServiceConnection(service: Service, hostname: string, options: ServiceConnectionOptions) {
-        const connection_id = this.next_service_connection_id++;
+        const connection_id = this.assignServiceConnectionId();
         const [service_type, service_identifier] = this.server.getServiceIdentifier(service)!;
         const server_address = ipaddr.parse(options.local_address).toBuffer();
         const remote_address = ipaddr.parse(options.remote_address).toBuffer();
@@ -379,6 +379,26 @@ export default class Connection extends BaseConnection {
 
         this.send(MessageType.CONNECTION, data);
         return new ServiceConnection(this, connection_id, service, hostname, options);
+    }
+
+    private assignServiceConnectionId() {
+        if (this.service_connections.size >= 0xffff) {
+            throw new Error('Cannot assign service connection ID');
+        }
+
+        let connection_id;
+
+        do {
+            connection_id = this.next_service_connection_id++;
+
+            // Service connection ID is a 16 bit integer
+            // Wrap to 0 if it is cannot fit
+            if (connection_id > 0xffff) {
+                connection_id = this.next_service_connection_id = 0;
+            }
+        } while (!this.service_connections.has(connection_id));
+
+        return connection_id;
     }
 }
 
