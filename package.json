@@ -7,6 +7,7 @@
         "homebridge-plugin"
     ],
     "homepage": "https://gitlab.fancy.org.uk/hap-server/remote-access",
+    "license": "AGPL-3.0-or-later",
     "author": {
         "name": "Samuel Elliott",
         "url": "https://samuelthomas2774.github.io"
