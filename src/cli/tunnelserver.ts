@@ -14,7 +14,7 @@ import {promises as fs, unlinkSync} from 'fs';
     http_port, https_port, httphttps_port, server_port, secureserver_port,
     domains, hostname_regex,
 }) => {
-    await fs.writeFile(path.join(run_path, 'tunnel-server.pid'), process.pid, 'utf-8');
+    await fs.writeFile(path.join(run_path, 'tunnel-server.pid'), '' + process.pid, 'utf-8');
     let deleted_pid = false;
     process.on('exit', () => {
         if (!deleted_pid) unlinkSync(path.join(run_path, 'tunnel-server.pid')), deleted_pid = true;
