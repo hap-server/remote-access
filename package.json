@@ -27,6 +27,9 @@
         "server.*",
         "client.*"
     ],
+    "bin": {
+        "hapserver-tunnel-setup": "bin/tunnelctl"
+    },
     "dependencies": {
         "http-headers": "^3.0.2",
         "ip6addr": "^0.2.3",
