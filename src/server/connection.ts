@@ -205,7 +205,8 @@ export default class Connection extends BaseConnection {
                         Buffer.from(hostname.domain, 'binary'),
                     ] : []),
                     Buffer.from([ListHostsHostnameType.STATUS]), uint32BE(4),
-                    uint32BE(hostname.status ?? this.getHostnameStatus(hostname.hostname + '.' + hostname.domain)),
+                    uint32BE(hostname.status ?? this.getHostnameStatus(hostname.hostname +
+                        (hostname.domain ? '.' + hostname.domain : ''))),
                 ])));
 
                 this.send(MessageType.LIST_HOSTS, data);
