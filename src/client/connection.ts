@@ -14,6 +14,8 @@ import {promises as fs} from 'fs';
 import * as path from 'path';
 import * as stream from 'stream';
 import * as nacl from 'tweetnacl';
+import * as https from 'https';
+import * as http from 'http';
 
 interface ConnectionOptions {
     log?: typeof import('@hap-server/api').log | import('@hap-server/api/homebridge').Logger | typeof console;
@@ -287,17 +289,30 @@ export default class Connection extends BaseConnection {
             const signing_key = hashdata.pk ? Buffer.from(([] as string[]).concat(hashdata.pk)[0], 'hex') : null;
 
             for (const txtrecord of txt) {
+                if (txtrecord[0] && txtrecord[0].startsWith('hap-server/tunnel ') && !txtrecord[1]) {
+                    txtrecord.splice(0, 1, ...txtrecord[0].split(' '));
+                }
+
                 if (!txtrecord[0] || txtrecord[0] !== 'hap-server/tunnel') continue;
 
                 if (txtrecord[1] && txtrecord[1] === 'tls') {
                     enable_tls = true;
 
-                    if (['sni', 'ca'].includes(txtrecord[2]) && signing_key) {
+                    const ca_url_parsed = txtrecord[2] === 'ca-url' ? parseUrl(txtrecord[3]) : null;
+                    if (ca_url_parsed && ca_url_parsed.protocol !== 'https:') throw new Error('ca-url must use the https: protocol');
+                    if (ca_url_parsed && ca_url_parsed.auth) throw new Error('ca-url does not support authentication');
+                    const ca_url_data = txtrecord[2] === 'ca-url' ? await this.httpsget({
+                        host: ca_url_parsed!.host,
+                        path: ca_url_parsed!.path,
+                    }) : null;
+
+                    if (['sni', 'ca', 'ca-url'].includes(txtrecord[2]) && signing_key) {
                         if (!txtrecord[4]) throw new Error('Invalid signature');
                         const data = txtrecord[2] === 'ca' ?
                             txtrecord[3] === '-' ?
                                 Buffer.concat(txtrecord.slice(5).map(t => Buffer.from(t))) :
                                 Buffer.from(txtrecord[3]) :
+                            txtrecord[2] === 'ca-url' ? ca_url_data![2] :
                             Buffer.from(txtrecord[3]);
                         const signature = Buffer.from(txtrecord[4], 'hex');
                         if (!nacl.sign.detached.verify(Buffer.concat([
@@ -312,6 +327,9 @@ export default class Connection extends BaseConnection {
                     if (txtrecord[2] === 'ca' && txtrecord[3]) {
                         tls_ca = Buffer.from(txtrecord[3] === '-' ?
                             txtrecord.slice(5).join('') : txtrecord[3], 'base64');
+                    }
+                    if (txtrecord[2] === 'ca-url' && txtrecord[3]) {
+                        tls_ca = ca_url_data![2];
                     }
                 }
             }
@@ -396,6 +414,46 @@ export default class Connection extends BaseConnection {
         } else {
             throw new Error('Unsupported protocol');
         }
+    }
+
+    private static httpsget(options: string | URL | https.RequestOptions) {
+        return new Promise<[http.ClientRequest, http.IncomingMessage, Buffer]>((resolve, reject) => {
+            const request = https.get(options, async response => {
+                try {
+                    const data = await new Promise<Buffer>((resolve, reject) => {
+                        let data = Buffer.alloc(0);
+
+                        const ondata = (chunk: Buffer) => {
+                            data = Buffer.concat([data, chunk]);
+                        };
+                        const onend = () => {
+                            response.removeListener('data', ondata);
+                            response.removeListener('end', onend);
+                            response.removeListener('error', onerror);
+                            resolve(data);
+                        };
+                        const onerror = (err: Error) => {
+                            response.removeListener('data', ondata);
+                            response.removeListener('end', onend);
+                            response.removeListener('error', onerror);
+                            reject(err);
+                        };
+
+                        response.on('data', ondata);
+                        response.on('end', onend);
+                        response.on('error', onerror);
+                    });
+
+                    resolve([request, response, data]);
+                } catch (err) {
+                    reject(err);
+                }
+            });
+
+            request.on('error', err => {
+                reject(err);
+            });
+        });
     }
 
     static checkServerIdentity(
