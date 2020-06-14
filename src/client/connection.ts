@@ -312,7 +312,8 @@ export default class Connection extends BaseConnection {
                             txtrecord[3] === '-' ?
                                 Buffer.concat(txtrecord.slice(5).map(t => Buffer.from(t))) :
                                 Buffer.from(txtrecord[3]) :
-                            txtrecord[2] === 'ca-url' ? ca_url_data![2] :
+                            txtrecord[2] === 'ca-url' ?
+                                Buffer.concat([Buffer.from(txtrecord[3]), Buffer.from([0]), ca_url_data![2]]) :
                             Buffer.from(txtrecord[3]);
                         const signature = Buffer.from(txtrecord[4], 'hex');
                         if (!nacl.sign.detached.verify(Buffer.concat([
