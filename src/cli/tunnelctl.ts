@@ -111,6 +111,22 @@ const client = new TunnelClient();
         }
     } else if (process.argv[3] === 'unregister') {
         console.warn('Unregister');
+    } else if (process.argv[3] === 'list-domains') {
+        client.connection?.send(MessageType.LIST_DOMAINS, Buffer.alloc(0));
+        let [, remaining_domains_data] =
+            await client.connection!.waitForMessage(type => type === MessageType.LIST_DOMAINS);
+
+        const domains: string[] = [];
+        while (remaining_domains_data.length) {
+            if (remaining_domains_data.length < 4) continue;
+            const length = remaining_domains_data.readUInt32BE(0);
+            if (remaining_domains_data.length < 4 + length) continue;
+            const domain = remaining_domains_data.slice(4, 4 + length);
+            remaining_domains_data = remaining_domains_data.slice(4 + length);
+            domains.push(domain.toString());
+        }
+
+        console.log('Domains', domains);
     } else if (process.argv[3] === 'list-hostnames') {
         client.connection?.send(MessageType.LIST_HOSTS, Buffer.alloc(0));
         let [, data] = await client.connection!.waitForMessage(type => type === MessageType.LIST_HOSTS);
@@ -131,7 +147,10 @@ const client = new TunnelClient();
         let current_hostname: HostnameDetails | null = null;
         for (const entry of tlv_entries) {
             if (!current_hostname) entries.push(current_hostname = {} as HostnameDetails);
-            if (entry[0] === ListHostsHostnameType.SEPARATOR) current_hostname = null;
+            if (entry[0] === ListHostsHostnameType.SEPARATOR) {
+                current_hostname = null;
+                continue;
+            }
             current_hostname![entry[0]] = entry[1];
         }
 
