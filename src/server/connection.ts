@@ -397,7 +397,7 @@ export default class Connection extends BaseConnection {
             if (connection_id > 0xffff) {
                 connection_id = this.next_service_connection_id = 0;
             }
-        } while (!this.service_connections.has(connection_id));
+        } while (this.service_connections.has(connection_id));
 
         return connection_id;
     }
