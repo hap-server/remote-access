@@ -7,6 +7,9 @@
         "url": "https://samuelthomas2774.github.io"
     },
     "main": "index.js",
+    "keywords": [
+        "homebridge-plugin"
+    ],
     "repository": {
         "type": "git",
         "url": "https://gitlab.fancy.org.uk/hap-server/remote-access.git"
