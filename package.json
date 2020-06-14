@@ -2,14 +2,15 @@
     "name": "@hap-server/remote-access",
     "version": "0.1.0",
     "description": "Secure remote access to hap-server and Homebridge web interfaces.",
-    "author": {
-        "name": "Samuel Elliott",
-        "url": "https://samuelthomas2774.github.io"
-    },
     "keywords": [
         "hap-server-plugin",
         "homebridge-plugin"
     ],
+    "homepage": "https://gitlab.fancy.org.uk/hap-server/remote-access",
+    "author": {
+        "name": "Samuel Elliott",
+        "url": "https://samuelthomas2774.github.io"
+    },
     "repository": {
         "type": "git",
         "url": "https://gitlab.fancy.org.uk/hap-server/remote-access.git"
