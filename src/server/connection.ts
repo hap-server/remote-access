@@ -349,8 +349,8 @@ export default class Connection extends BaseConnection {
         const status = service.disconnect(hostname, this, false);
         if (status === DisconnectServiceStatus.SUCCESS) {
             this.service_listeners.splice(this.service_listeners.indexOf(this
-                .getServiceName(type, identifier, hostname).toString()), 0);
-            
+                .getServiceName(type, identifier, hostname).toString()), 1);
+
             for (const service_connection of this.service_connections.values()) {
                 if (service_connection.service !== service) continue;
                 service_connection.destroy(new Error('Service disconnected'));
