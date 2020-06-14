@@ -17,6 +17,17 @@ export default function initHomebridgePlugin(homebridge: HomebridgeAPI) {
     homebridge.registerPlatform('remote-access', 'TunnelServiceConfiguration', TunnelPlugin.use(homebridge));
 }
 
+interface Configuration {
+    server: string;
+    hostname?: string;
+    proxy: ProxyConfiguration;
+    certbot_path?: string;
+    certbot_data_path?: string;
+    certbot_acme_server?: string;
+    certbot_agree_tos: boolean;
+    certbot_email_address?: string;
+}
+
 interface ProxyConfiguration {
     port: number;
     host?: string;
@@ -30,17 +41,17 @@ export class TunnelPlugin implements PlatformInstance {
     proxy: net.Server | ProxyConfiguration;
     log: import('@hap-server/api/homebridge').Logger | typeof console = console;
 
-    constructor(config: any) {
+    constructor(config: Configuration) {
         this.config = config;
         this.proxy = this.config.proxy;
     }
 
     static use(homebridge: HomebridgeAPI) {
-        return class extends (this.constructor as typeof TunnelPlugin) {
+        return class extends TunnelPlugin implements PlatformInstance {
             path = homebridge.user.persistPath();
             certbot_data_path = path.join(homebridge.user.storagePath(), 'remote-access-certbot');
 
-            constructor(config: any, log: import('@hap-server/api/homebridge').Logger) {
+            constructor(log: import('@hap-server/api/homebridge').Logger, config: any, homebridge_api: HomebridgeAPI) {
                 super(config);
                 this.log = log;
             }
