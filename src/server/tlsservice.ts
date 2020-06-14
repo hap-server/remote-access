@@ -134,6 +134,9 @@ export default class TlsService implements Service {
 
             socket.on('close', () => tunnel_socket.destroy());
             tunnel_socket.on('close', () => socket.destroy());
+
+            socket.on('error', () => tunnel_socket.destroy());
+            tunnel_socket.on('error', () => socket.destroy());
         };
         const onclose = () => {
             this.connections.splice(this.connections.indexOf(socket), 1);
