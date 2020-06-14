@@ -17,7 +17,8 @@ const challenge: ChallengeCleanup = {
 http.request({
     method: 'DELETE',
     path: '/challenge/' + challenge.domain,
-    socketPath: process.env.TUNNEL_CHALLENGE_SERVER_SOCKET,
+    host: '::1',
+    port: parseInt(process.env.TUNNEL_CHALLENGE_SERVER?.substr(process.env.TUNNEL_CHALLENGE_SERVER.lastIndexOf(':') + 1)!),
 }, async response => {
     const data = await new Promise<Buffer>((resolve, reject) => {
         let data = Buffer.alloc(0);
@@ -51,4 +52,4 @@ http.request({
         console.log(data);
         process.exit(1);
     }
-});
+}).end();

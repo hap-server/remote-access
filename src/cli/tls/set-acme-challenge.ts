@@ -12,7 +12,8 @@ const challenge: Challenge = {
 http.request({
     method: 'POST',
     path: '/challenge',
-    socketPath: process.env.TUNNEL_CHALLENGE_SERVER_SOCKET,
+    host: '::1',
+    port: parseInt(process.env.TUNNEL_CHALLENGE_SERVER?.substr(process.env.TUNNEL_CHALLENGE_SERVER.lastIndexOf(':') + 1)!),
 }, async response => {
     const data = await new Promise<Buffer>((resolve, reject) => {
         let data = Buffer.alloc(0);
@@ -46,4 +47,4 @@ http.request({
         console.log(data);
         process.exit(1);
     }
-}).write(JSON.stringify(challenge));
+}).end(JSON.stringify(challenge));

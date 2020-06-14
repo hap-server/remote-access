@@ -14,18 +14,23 @@ export async function getSecureContext(plugin: TunnelPlugin): Promise<tls.Secure
 
     if (!hostname) throw new Error('Not ready');
 
+    const urldata = url.parse(plugin.tunnel_client.url);
+    if (!urldata.hostname && !urldata.protocol && urldata.pathname) {
+        urldata.hostname = urldata.pathname;
+        urldata.pathname = null;
+    }
+
     const certbot_options: CertbotOptions = {
         path: plugin.config.certbot_path,
 
         data_path: plugin.config.certbot_data_path || plugin.certbot_data_path,
-        challenge_server_path:
-            path.join(plugin.config.certbot_data_path || plugin.certbot_data_path, 'challenge-server.sock'),
+        challenge_server: path.join(plugin.config.certbot_data_path || plugin.certbot_data_path, 'ch'),
 
         acme_server: plugin.config.certbot_acme_server,
 
         agree_tos: plugin.config.certbot_agree_tos,
         subscriber_email_address: plugin.config.certbot_email_address ||
-            ('"tunnelserver-hostname+' + plugin.hostname + '"@' + url.parse(plugin.tunnel_client.url).hostname),
+            ('"tunnelserver-hostname+' + plugin.hostname + '"@' + urldata.hostname),
     };
 
     await mkdirp(certbot_options.data_path);
@@ -37,7 +42,11 @@ export async function getSecureContext(plugin: TunnelPlugin): Promise<tls.Secure
     } catch (err) {
         // Request a new certificate
 
-        const challenge_responder = await createChallengeResponder(plugin, certbot_options.challenge_server_path);
+        plugin.tunnel_client.log.info('Requesting new certificate');
+
+        const [challenge_responder, port] =
+            await createChallengeResponder(plugin, certbot_options.challenge_server);
+        certbot_options.challenge_server = '[::1]:' + port;
         try {
             await certbotRun(hostname, [hostname], certbot_options);
 
@@ -58,12 +67,19 @@ export async function getSecureContext(plugin: TunnelPlugin): Promise<tls.Secure
     } catch (err) {
         // Renew the certificate
 
+        plugin.tunnel_client.log.info('Checking if certificate should be renewed');
+
+        const [challenge_responder, port] =
+            await createChallengeResponder(plugin, certbot_options.challenge_server);
+        certbot_options.challenge_server = '[::1]:' + port;
         try {
             await certbotRenew(hostname, certbot_options);
 
             await fs.writeFile(path.join(certbot_options.data_path, 'renew-timestamp'), Date.now() + '\n', 'utf-8');
         } catch (err) {
             plugin.tunnel_client.log.error('Error renewing certificate', err);
+        } finally {
+            challenge_responder.close();
         }
     }
 
@@ -81,7 +97,7 @@ export interface Challenge {
     all_domains: string;
 }
 
-async function createChallengeResponder(plugin: TunnelPlugin, socket_path: string): Promise<http.Server> {
+async function createChallengeResponder(plugin: TunnelPlugin, socket_path: string) {
     const challenges = new Map<string, Challenge>();
 
     const server = http.createServer(async (request, response) => {
@@ -138,15 +154,15 @@ async function createChallengeResponder(plugin: TunnelPlugin, socket_path: strin
         }
     });
 
-    await new Promise((rs, rj) => server.listen(path, rs));
-
     plugin.acme_http01_challenge.challenge_sets.add(challenges);
 
     server.on('close', () => {
         plugin.acme_http01_challenge.challenge_sets.delete(challenges);
     });
 
-    return server;
+    await new Promise((rs, rj) => server.listen(0, '::1', rs));
+
+    return [server, (server.address() as import('net').AddressInfo).port] as [http.Server, number];
 }
 
 export class AcmeHttp01Service {
@@ -192,7 +208,7 @@ interface CertbotOptions {
      */
     subscriber_email_address: string;
 
-    challenge_server_path: string;
+    challenge_server: string;
 }
 
 async function certbotRun(certname: string, hostnames: string[], options: CertbotOptions) {
@@ -234,6 +250,7 @@ function certbot(args: string[], options: CertbotOptions) {
 
             '--agree-tos',
             '--email', options.subscriber_email_address,
+            '--manual-public-ip-logging-ok',
 
             ...args,
         ], {
@@ -242,9 +259,9 @@ function certbot(args: string[], options: CertbotOptions) {
 
                 PATH: path.resolve(__dirname, '..', '..', 'bin') +
                     (process.platform === 'win32' ? ';' : ':') + process.execPath +
-                    process.env.PATH ? (process.platform === 'win32' ? ';' : ':') + process.env.PATH : '',
+                    (process.env.PATH ? (process.platform === 'win32' ? ';' : ':') + process.env.PATH : ''),
 
-                TUNNEL_CHALLENGE_SERVER_SOCKET: options.challenge_server_path,
+                TUNNEL_CHALLENGE_SERVER: options.challenge_server,
             },
         });
 
