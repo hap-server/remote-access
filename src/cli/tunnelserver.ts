@@ -1,5 +1,5 @@
 import TunnelServer, {
-    HttpService, TlsService, HttpTlsService,
+    AcmeHttp01Service, TlsService, HttpTlsService,
     SQLiteClientProvider, DefaultCertificateIssuer as CertificateIssuer,
     DEFAULT_HTTP_SERVICE_IDENTIFIER, DEFAULT_TLS_SERVICE_IDENTIFIER,
     ServiceType,
@@ -42,7 +42,7 @@ import {promises as fs, unlinkSync} from 'fs';
 
     // Register the default HTTP service
 
-    const http_service = await tunnelserver.addService(ServiceType.ACME_HTTP01_CHALLENGE, DEFAULT_HTTP_SERVICE_IDENTIFIER, HttpService, {
+    const http_service = await tunnelserver.addService(ServiceType.ACME_HTTP01_CHALLENGE, DEFAULT_HTTP_SERVICE_IDENTIFIER, AcmeHttp01Service, {
         host: '::',
         port: http_port,
     });
