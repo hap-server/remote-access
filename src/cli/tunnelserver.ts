@@ -12,6 +12,7 @@ import {promises as fs, unlinkSync} from 'fs';
 (async ({
     data_path, run_path,
     http_port, https_port, httphttps_port, server_port, secureserver_port,
+    domains, hostname_regex,
 }) => {
     await fs.writeFile(path.join(run_path, 'tunnel-server.pid'), process.pid, 'utf-8');
     let deleted_pid = false;
@@ -33,10 +34,8 @@ import {promises as fs, unlinkSync} from 'fs';
 
     clientprovider.issuer = certissuer;
 
-    clientprovider.domains = [
-        'hapserver-tunnel.test',
-    ];
-    clientprovider.hostname_regex = /^[a-z0-9-]+\.hapserver-tunnel\.test$/;
+    clientprovider.domains = domains;
+    clientprovider.hostname_regex = hostname_regex;
 
     tunnelserver.addClientProvider(clientprovider);
     tunnelserver.setDefaultClientProvider(clientprovider);
@@ -157,4 +156,8 @@ import {promises as fs, unlinkSync} from 'fs';
     httphttps_port: parseInt(process.env.HTTPHTTPS_SERVER_PORT || '9003'),
     server_port: parseInt(process.env.TUNNEL_SERVER_PORT || '9000'),
     secureserver_port: parseInt(process.env.SECURE_TUNNEL_SERVER_PORT || '9004'),
+
+    domains: (process.env.TUNNEL_SERVER_DOMAINS || '').split(',').filter(d => d),
+    hostname_regex: process.env.TUNNEL_SERVER_HOSTNAME_REGEX ?
+        new RegExp(process.env.TUNNEL_SERVER_HOSTNAME_REGEX) : null,
 });
