@@ -91,8 +91,12 @@ export enum RemoveHostStatus {
 
 export enum ServiceType {
     HTTP = 0x0000,
+    /** @deprecated */
     HTTPS = 0x0001,
+    TLS = 0x0001,
+    /** @deprecated */
     HTTP_HTTPS = 0x0002,
+    HTTP_TLS = 0x0002,
     ACME_HTTP01_CHALLENGE = 0x0003,
 }
 

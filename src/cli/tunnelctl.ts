@@ -219,8 +219,8 @@ const client = new TunnelClient();
                 service_connection.remoteAddress, service_connection.remotePort,
                 service_connection.localAddress, service_connection.localPort);
             (service_type === ServiceType.HTTP ? http_server :
-                service_type === ServiceType.HTTPS ? https_server :
-                service_type === ServiceType.HTTP_HTTPS ? http_https_server :
+                service_type === ServiceType.TLS ? https_server :
+                service_type === ServiceType.HTTP_TLS ? http_tls_server :
                 null)!.emit('connection', service_connection);
         });
 
@@ -249,9 +249,9 @@ const client = new TunnelClient();
                 `[${req.socket.localAddress}]:${req.socket.localPort}\n`);
             res.end();
         });
-        const http_https_server: net.Server = net.createServer(connection => {
+        const http_tls_server: net.Server = net.createServer(connection => {
             const data = connection.read(1);
-            if (!data) return connection.once('readable', () => http_https_server.emit('connection', connection));
+            if (!data) return connection.once('readable', () => http_tls_server.emit('connection', connection));
             const first_byte = data[0];
             connection.unshift(data);
             if (first_byte < 32 || first_byte >= 127) {

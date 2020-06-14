@@ -1,7 +1,7 @@
 import TunnelServer, {
-    HttpService, HttpsService, HttpHttpsService,
+    HttpService, TlsService, HttpTlsService,
     SQLiteClientProvider, DefaultCertificateIssuer as CertificateIssuer,
-    DEFAULT_HTTP_SERVICE_IDENTIFIER, DEFAULT_HTTPS_SERVICE_IDENTIFIER,
+    DEFAULT_HTTP_SERVICE_IDENTIFIER, DEFAULT_TLS_SERVICE_IDENTIFIER,
     ServiceType,
 } from '../server';
 
@@ -36,25 +36,25 @@ import {promises as fs, unlinkSync} from 'fs';
     clientprovider.domains = [
         'hapserver-tunnel.test',
     ];
-    clientprovider.hostname_regex = /\.hapserver-tunnel\.test$/;
+    clientprovider.hostname_regex = /^[a-z0-9-]+\.hapserver-tunnel\.test$/;
 
     tunnelserver.addClientProvider(clientprovider);
     tunnelserver.setDefaultClientProvider(clientprovider);
 
     // Register the default HTTP service
 
-    const http_service = await tunnelserver.addService(ServiceType.HTTP, DEFAULT_HTTP_SERVICE_IDENTIFIER, HttpService, {
+    const http_service = await tunnelserver.addService(ServiceType.ACME_HTTP01_CHALLENGE, DEFAULT_HTTP_SERVICE_IDENTIFIER, HttpService, {
         host: '::',
         port: http_port,
     });
 
     const http_serviceaddress = http_service.server.address() as net.AddressInfo;
-    console.log('Listening for HTTP connections on %s port %d', http_serviceaddress.address, http_serviceaddress.port);
+    console.log('Listening for HTTP connections for ACME challenges on %s port %d', http_serviceaddress.address, http_serviceaddress.port);
 
     // Register the default HTTPS service
 
     const https_service = await tunnelserver.addService(
-        ServiceType.HTTPS, DEFAULT_HTTPS_SERVICE_IDENTIFIER, HttpsService, {
+        ServiceType.TLS, DEFAULT_TLS_SERVICE_IDENTIFIER, TlsService, {
         host: '::',
         port: https_port,
     });
@@ -67,7 +67,7 @@ import {promises as fs, unlinkSync} from 'fs';
 
     // Register the default HTTP/HTTPS service
 
-    const httphttps_service = await tunnelserver.addService(ServiceType.HTTP_HTTPS, 0, HttpHttpsService, {
+    const httphttps_service = await tunnelserver.addService(ServiceType.HTTP_TLS, 0, HttpTlsService, {
         host: '::',
         port: httphttps_port,
     });

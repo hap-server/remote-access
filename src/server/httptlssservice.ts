@@ -17,7 +17,7 @@ type DefaultResponseData = Buffer | string | {
     close?: boolean;
 };
 
-export default class HttpHttpsService implements Service {
+export default class HttpTlsService implements Service {
     readonly tunnel_server_connections = new Map<string, Connection>();
     readonly connections: (net.Socket & {service_hostname?: string;})[] = [];
 
@@ -38,7 +38,7 @@ export default class HttpHttpsService implements Service {
     connect(hostname: string, connection: Connection) {
         if (this.tunnel_server_connections.has(hostname)) return ConnectServiceStatus.OTHER_CLIENT_CONNECTED;
         this.tunnel_server_connections.set(hostname, connection);
-        console.log('Connecting default HTTP/HTTPS service for %s to %s port %d',
+        console.log('Connecting default HTTP/TLS service for %s to %s port %d',
             hostname, connection.socket.remoteAddress, connection.socket.remotePort);
         return ConnectServiceStatus.SUCCESS;
     }
@@ -46,7 +46,7 @@ export default class HttpHttpsService implements Service {
     disconnect(hostname: string, connection: Connection, disconnected: boolean) {
         if (this.tunnel_server_connections.get(hostname) !== connection) return DisconnectServiceStatus.WASNT_CONNECTED;
         this.tunnel_server_connections.delete(hostname);
-        console.log('Disconnecting default HTTP/HTTPS service for %s from %s port %d',
+        console.log('Disconnecting default HTTP/TLS service for %s from %s port %d',
             hostname, connection.socket.remoteAddress, connection.socket.remotePort);
         for (const socket of this.connections) {
             if (socket.service_hostname !== hostname) continue;
@@ -210,11 +210,11 @@ export default class HttpHttpsService implements Service {
             tunnel_socket.on('close', () => socket.destroy());
 
             socket.on('error', err => {
-                console.error('Error in default HTTP/HTTPS service %s connection from %s port %d',
+                console.error('Error in default HTTP/TLS service %s connection from %s port %d',
                     hostname, socket.remoteAddress, socket.remotePort, err);
             });
             tunnel_socket.on('error', err => {
-                console.error('Error in default HTTP/HTTPS service %s tunnel connection from %s port %d',
+                console.error('Error in default HTTP/TLS service %s tunnel connection from %s port %d',
                     hostname, socket.remoteAddress, socket.remotePort, err);
             });
         };

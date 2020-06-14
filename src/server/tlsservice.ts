@@ -5,7 +5,7 @@ import * as net from 'net';
 import isTlsClientHello = require('is-tls-client-hello');
 import extractSni = require('sni');
 
-export default class HttpService implements Service {
+export default class TlsService implements Service {
     readonly tunnel_server_connections = new Map<string, Connection>();
     readonly connections: (net.Socket & {service_hostname?: string;})[] = [];
 
@@ -23,7 +23,7 @@ export default class HttpService implements Service {
     connect(hostname: string, connection: Connection) {
         if (this.tunnel_server_connections.has(hostname)) return ConnectServiceStatus.OTHER_CLIENT_CONNECTED;
         this.tunnel_server_connections.set(hostname, connection);
-        console.log('Connecting default HTTPS service for %s to %s port %d',
+        console.log('Connecting default TLS service for %s to %s port %d',
             hostname, connection.socket.remoteAddress, connection.socket.remotePort);
         return ConnectServiceStatus.SUCCESS;
     }
@@ -31,7 +31,7 @@ export default class HttpService implements Service {
     disconnect(hostname: string, connection: Connection, disconnected: boolean) {
         if (this.tunnel_server_connections.get(hostname) !== connection) return DisconnectServiceStatus.WASNT_CONNECTED;
         this.tunnel_server_connections.delete(hostname);
-        console.log('Disconnecting default HTTPS service for %s from %s port %d',
+        console.log('Disconnecting default TLS service for %s from %s port %d',
             hostname, connection.socket.remoteAddress, connection.socket.remotePort);
         for (const socket of this.connections) {
             if (socket.service_hostname !== hostname) continue;
