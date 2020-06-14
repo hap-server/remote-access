@@ -93,6 +93,7 @@ export enum ServiceType {
     HTTP = 0x0000,
     HTTPS = 0x0001,
     HTTP_HTTPS = 0x0002,
+    ACME_HTTP01_CHALLENGE = 0x0003,
 }
 
 export enum ConnectServiceStatus {

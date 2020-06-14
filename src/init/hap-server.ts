@@ -3,21 +3,30 @@ import storage from '@hap-server/api/storage';
 import TunnelClient, {TunnelState} from '../client';
 import {ServiceConnection} from '../client/connection';
 import {MessageType, ServiceType, AddHostStatus} from '../common/message-types';
-import * as https from 'https';
-import {promises as fs} from 'fs';
+import * as tls from 'tls';
+import * as path from 'path';
+import {getSecureContext, AcmeHttp01Service} from './tls';
 import uuid = require('uuid/v4');
 
 log.info('Loading tunnel plugin');
 
 export class TunnelPlugin extends ServerPlugin {
+    certbot_data_path: string;
+
     constructor(server: import('@hap-server/hap-server/server').Server, config: any) {
-        super(server, config || (config = require('@hap-server/api/plugin-config')?.['server-plugins']?.['*']));
+        super(server, config || (config = require('@hap-server/api/plugin-config')?.['server-plugins']?.['*'] || {}));
+
+        // TODO: add some way of getting a path to store data in for plugins instead of using node-persist
+        this.certbot_data_path =
+            path.join(hapserver.plugin.plugin_manager.storage_path, hapserver.plugin.name, 'certbot');
     }
 
     readonly https_server = (() => {
         const https_server = this.server.createSecureServer({
-            // cert: ...,
-            // key: ...,
+            // @ts-ignore
+            SNICallback: (servername: string, callback: (err: Error | null, context?: tls.SecureContext) => void) => {
+                this.getSecureContext(servername).then(context => (callback(null, context), context), callback);
+            },
         });
 
         return https_server;
@@ -29,13 +38,19 @@ export class TunnelPlugin extends ServerPlugin {
         tunnel_client.url = 'ts://127.0.0.1:9000';
 
         tunnel_client.on('service-connection', (service_connection: ServiceConnection) => {
-            this.handleServiceConnection(service_connection);
+            if (service_connection.options.service_type === ServiceType.ACME_HTTP01_CHALLENGE) {
+                this.acme_http01_challenge.handleConnection(service_connection);
+            } else {
+                this.handleServiceConnection(service_connection);
+            }
         });
 
         return tunnel_client;
     })();
 
-    handleServiceConnection(service_connection: ServiceConnection): void {
+    acme_http01_challenge = new AcmeHttp01Service(this);
+
+    handleServiceConnection(service_connection: ServiceConnection) {
         log.info('Handling service connection from %s port %d on server %s port %d',
             service_connection.remoteAddress, service_connection.remotePort,
             service_connection.localAddress, service_connection.localPort);
@@ -47,9 +62,12 @@ export class TunnelPlugin extends ServerPlugin {
     hostname: string | null = null;
 
     async load() {
+        log.info('Loading tunnel server plugin', this);
+
         if (!this.url) {
             if (typeof this.config.server !== 'string') {
-                throw new Error('Invalid configuration - no server URL');
+                log.error('Invalid configuration - no server URL');
+                return;
             }
 
             this.tunnel_client.url = this.url = this.config.server;
@@ -116,11 +134,40 @@ export class TunnelPlugin extends ServerPlugin {
             this.tunnel_client.connectService(service.type, service.identifier, this.hostname = service.hostname);
         }
 
+        this.tunnel_client.connectService(ServiceType.ACME_HTTP01_CHALLENGE, 0, this.hostname);
+
         this.tunnel_client.setTargetState(TunnelState.CONNECTED);
     }
 
     async unload() {
         this.tunnel_client.setTargetState(TunnelState.DISCONNECTED);
+
+        clearTimeout(this.secure_context_timeout!);
+        this.secure_context = null;
+        this.secure_context_timeout = null;
+    }
+
+    secure_context: Promise<tls.SecureContext> | null = null;
+    secure_context_timeout: NodeJS.Timeout | null = null;
+
+    async getSecureContext(servername: string): Promise<tls.SecureContext> {
+        if (!this.hostname || this.hostname !== servername) throw new Error('Invalid servername');
+
+        return this.secure_context || (this.secure_context = this._getSecureContext().catch(err => {
+            this.secure_context = null;
+            throw err;
+        }).then(context => {
+            this.secure_context_timeout = setTimeout(() => {
+                this.secure_context = null;
+                this.secure_context_timeout = null;
+            }, 60000);
+
+            return context;
+        }));
+    }
+
+    async _getSecureContext() {
+        return getSecureContext(this);
     }
 }
 

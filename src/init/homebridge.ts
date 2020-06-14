@@ -7,9 +7,10 @@ import {ServiceConnection} from '../client/connection';
 import {MessageType, ServiceType, AddHostStatus} from '../common/message-types';
 import * as net from 'net';
 import * as tls from 'tls';
-import * as fs from 'fs';
+import {promises as fs} from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import {getSecureContext, AcmeHttp01Service} from './tls';
 import uuid = require('uuid/v4');
 
 export default function initHomebridgePlugin(homebridge: HomebridgeAPI) {
@@ -24,6 +25,7 @@ interface ProxyConfiguration {
 export class TunnelPlugin implements PlatformInstance {
     config: any;
     path = path.join(os.homedir(), '.homebridge', 'persist');
+    certbot_data_path = path.join(os.homedir(), '.homebridge', 'remote-access-certbot');
 
     proxy: net.Server | ProxyConfiguration;
     log: import('@hap-server/api/homebridge').Logger | typeof console = console;
@@ -36,6 +38,7 @@ export class TunnelPlugin implements PlatformInstance {
     static use(homebridge: HomebridgeAPI) {
         return class extends (this.constructor as typeof TunnelPlugin) {
             path = homebridge.user.persistPath();
+            certbot_data_path = path.join(homebridge.user.storagePath(), 'remote-access-certbot');
 
             constructor(config: any, log: import('@hap-server/api/homebridge').Logger) {
                 super(config);
@@ -46,20 +49,27 @@ export class TunnelPlugin implements PlatformInstance {
 
     readonly tls_server = (() => {
         const tls_server = tls.createServer({
-            // cert: ...,
-            // key: ...,
+            SNICallback: (servername: string, callback: (err: Error | null, context: tls.SecureContext) => void) => {
+                // @ts-ignore
+                this.getSecureContext(servername).then(context => (callback(null, context), context), callback);
+            },
         });
 
         tls_server.on('secureConnection', socket => {
-            if (this.proxy instanceof net.Socket) {
+            if (this.proxy instanceof tls.Server) {
+                this.proxy.emit('secureConnection', socket);
+                return;
+            }
+            if (this.proxy instanceof net.Server) {
                 this.proxy.emit('connection', socket);
+                return;
             }
             
             if (!('port' in this.proxy)) return;
 
-            const proxy_socket = net.createConnection({
+            const proxy_socket = net.connect({
                 port: this.proxy.port,
-                host: this.proxy.host,
+                host: this.proxy.host ?? '::1',
             });
 
             proxy_socket.pipe(socket);
@@ -78,19 +88,25 @@ export class TunnelPlugin implements PlatformInstance {
         tunnel_client.url = 'ts://127.0.0.1:9000';
 
         tunnel_client.on('service-connection', (service_connection: ServiceConnection) => {
-            const data = service_connection.read(1);
-            if (!data) return service_connection.once('readable', () => tunnel_client.emit('service-connection', service_connection));
-            const first_byte = data[0];
-            service_connection.unshift(data);
-            if (first_byte < 32 || first_byte >= 127) {
-                this.tls_server.emit('connection', service_connection);
+            if (service_connection.options.service_type === ServiceType.ACME_HTTP01_CHALLENGE) {
+                this.acme_http01_challenge.handleConnection(service_connection);
             } else {
-                this.tls_server.emit('secureConnection', service_connection);
+                this.handleServiceConnection(service_connection);
             }
         });
 
         return tunnel_client;
     })();
+
+    acme_http01_challenge = new AcmeHttp01Service(this);
+
+    handleServiceConnection(service_connection: ServiceConnection) {
+        this.log.info('Handling service connection from %s port %d on server %s port %d',
+            service_connection.remoteAddress, service_connection.remotePort,
+            service_connection.localAddress, service_connection.localPort);
+
+        this.tls_server.emit('connection', service_connection);
+    }
 
     url: string | null = null;
     hostname: string | null = null;
@@ -107,9 +123,8 @@ export class TunnelPlugin implements PlatformInstance {
         if (!this.hostname) {
             const server_uuid_path = path.join(this.path, 'TunnelServiceServerUUID');
 
-            let server_uuid: string | null =
-                JSON.parse(await fs.promises.readFile(server_uuid_path, 'utf-8'))?.value || null;
-            if (!server_uuid) await fs.promises.writeFile(server_uuid_path, JSON.stringify({
+            let server_uuid: string | null = JSON.parse(await fs.readFile(server_uuid_path, 'utf-8'))?.value || null;
+            if (!server_uuid) await fs.writeFile(server_uuid_path, JSON.stringify({
                 key: 'TunnelServiceServerUUID',
                 value: server_uuid = uuid(),
             }, null, 4) + '\n', 'utf-8');
@@ -120,9 +135,7 @@ export class TunnelPlugin implements PlatformInstance {
                 type: ServiceType;
                 identifier: number;
                 hostname: string;
-            } | null = JSON.parse(
-                await fs.promises.readFile(service_path, 'utf-8')
-            )?.value || null;
+            } | null = JSON.parse(await fs.readFile(service_path, 'utf-8'))?.value || null;
 
             if (!service) {
                 await this.tunnel_client.connect();
@@ -161,7 +174,7 @@ export class TunnelPlugin implements PlatformInstance {
                     throw error;
                 }
 
-                await fs.promises.writeFile(service_path, JSON.stringify({
+                await fs.writeFile(service_path, JSON.stringify({
                     key: 'TunnelServiceConfiguration.' + server_uuid,
                     value: service = {
                         type: ServiceType.HTTPS,
@@ -174,11 +187,36 @@ export class TunnelPlugin implements PlatformInstance {
             this.tunnel_client.connectService(service.type, service.identifier, this.hostname = service.hostname);
         }
 
+        this.tunnel_client.connectService(ServiceType.ACME_HTTP01_CHALLENGE, 0, this.hostname);
+
         this.tunnel_client.setTargetState(TunnelState.CONNECTED);
     }
     
     accessories() {
         this.accessories = () => {};
         this.load();
+    }
+
+    secure_context: Promise<tls.SecureContext> | null = null;
+    secure_context_timeout: NodeJS.Timeout | null = null;
+
+    async getSecureContext(servername: string): Promise<tls.SecureContext> {
+        if (!this.hostname || this.hostname !== servername) throw new Error('Invalid servername');
+
+        return this.secure_context || (this.secure_context = this._getSecureContext().catch(err => {
+            this.secure_context = null;
+            throw err;
+        }).then(context => {
+            this.secure_context_timeout = setTimeout(() => {
+                this.secure_context = null;
+                this.secure_context_timeout = null;
+            }, 60000);
+
+            return context;
+        }));
+    }
+
+    async _getSecureContext() {
+        return getSecureContext(this);
     }
 }
