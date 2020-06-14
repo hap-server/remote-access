@@ -7,15 +7,125 @@ cache:
 build:
     stage: build
     script:
-        - npm install
+        - npm --color="always" install
         - npx tsc
 
-        - PACKAGE_PATH=`npm pack`
+        - PACKAGE_PATH=`npm --color="always" pack`
         - mv $PACKAGE_PATH hap-server-remote-access.tgz
+
+        - cd packages/homebridge
+        - node -e "fs.writeFileSync('package.json', JSON.stringify((p => (p.version = require('../../package').version, p.peerDependencies['@hap-server/remote-access'] = require('../../package').version, p))(JSON.parse(fs.readFileSync('package.json', 'utf-8'))), null, 4) + '\n', 'utf-8')"
+        - PACKAGE_PATH=`npm --color="always" pack`
+        - mv $PACKAGE_PATH ../../homebridge-remote-access.tgz
+    only:
+        changes:
+            - .gitlab-ci.yml
+            - package.json
+            - package-lock.json
+            - tsconfig.json
+            - src/**/*
+            - packages/homebridge/**/*
+    except:
+        variables:
+            - $NPM_AUDIT_SCHEDULE_SKIP_BUILD
     artifacts:
         paths:
             - dist
             - hap-server-remote-access.tgz
+            - homebridge-remote-access.tgz
+
+audit:
+    stage: test
+    script:
+        - npm audit --json > npm-audit.json || true
+        - npm --color="always" audit
+    artifacts:
+        paths:
+            - npm-audit.json
+        when: always
+    only:
+        changes:
+            - .gitlab-ci.yml
+            - package-lock.json
+    dependencies: []
+    cache:
+        paths:
+            - node_modules/
+        policy: pull
+    when: always
+    allow_failure: true
+
+publish-npm:
+    stage: deploy
+    script:
+        - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
+        - npm --color="always" publish
+
+        - cd packages/homebridge
+        - node -e "fs.writeFileSync('package.json', JSON.stringify((p => (p.version = require('../../package').version, p.peerDependencies['@hap-server/remote-access'] = require('../../package').version, p))(JSON.parse(fs.readFileSync('package.json', 'utf-8'))), null, 4) + '\n', 'utf-8')"
+        - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
+        - npm --color="always" publish
+    dependencies:
+        - build
+    only:
+        refs:
+            - /^v.*$/
+        variables:
+            - $NPM_TOKEN
+    except:
+        - branches
+    cache:
+        paths:
+            - node_modules/
+        policy: pull
+
+publish-github:
+    stage: deploy
+    script:
+        - echo "//npm.pkg.github.com/:_authToken=${GITHUB_NPM_TOKEN}" > .npmrc
+        - npm --color="always" --registry=https://npm.pkg.github.com/ publish
+
+        - cd packages/homebridge
+        - node -e "fs.writeFileSync('package.json', JSON.stringify((p => (p.version = require('../../package').version, p.peerDependencies['@hap-server/remote-access'] = require('../../package').version, p))(JSON.parse(fs.readFileSync('package.json', 'utf-8'))), null, 4) + '\n', 'utf-8')"
+        - echo "//npm.pkg.github.com/:_authToken=${GITHUB_NPM_TOKEN}" > .npmrc
+        - npm --color="always" --registry=https://npm.pkg.github.com/ publish
+    dependencies:
+        - build
+    only:
+        refs:
+            - /^v.*$/
+        variables:
+            - $GITHUB_NPM_TOKEN
+    except:
+        - branches
+    cache:
+        paths:
+            - node_modules/
+        policy: pull
+
+publish-gitlab:
+    stage: deploy
+    script:
+        - echo "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/npm/:_authToken=${CI_JOB_TOKEN}" | sed s/^https:// > .npmrc
+        - npm --color="always" --registry=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/npm/ publish
+
+        - cd packages/homebridge
+        - node -e "fs.writeFileSync('package.json', JSON.stringify((p => (p.version = require('../../package').version, p.peerDependencies['@hap-server/remote-access'] = require('../../package').version, p))(JSON.parse(fs.readFileSync('package.json', 'utf-8'))), null, 4) + '\n', 'utf-8')"
+        - cp ../../.npmrc .
+        - npm --color="always" --registry=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/npm/ publish
+    dependencies:
+        - build
+    only:
+        refs:
+            - /^v.*$/
+        variables:
+            - $GITLAB_NPM_PUBLISH
+    except:
+        - branches
+    cache:
+        paths:
+            - node_modules/
+        policy: pull
 
 test-server:
     stage: deploy

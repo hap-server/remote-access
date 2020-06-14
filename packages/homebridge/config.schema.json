@@ -1,0 +1,120 @@
+{
+    "pluginType": "platform",
+    "pluginAlias": "remote-access.TunnelServiceConfiguration",
+    "singular": true,
+
+    "schema": {
+        "type": "object",
+
+        "properties": {
+            "platform": {
+                "type": "string",
+                "enum": [
+                    "remote-access.TunnelServiceConfiguration",
+                    "TunnelServiceConfiguration"
+                ],
+                "default": "remote-access.TunnelServiceConfiguration"
+            },
+
+            "server": {
+                "type": "string",
+                "required": true
+            },
+
+            "hostname": {
+                "type": "string"
+            },
+
+            "proxy": {
+                "type": "object",
+                "properties": {
+                    "host": {
+                        "type": "string",
+                        "format": "ipv6",
+                        "default": "::1"
+                    },
+                    "port": {
+                        "type": "number",
+                        "default": 8080
+                    }
+                }
+            },
+
+            "certbot_path": {
+                "type": "string"
+            },
+            "certbot_data_path": {
+                "type": "string"
+            },
+            "certbot_acme_server": {
+                "type": "string",
+                "format": "url"
+            },
+            "certbot_agree_tos": {
+                "type": "boolean",
+                "required": true,
+                "enum": [true],
+                "default": false
+            },
+            "certbot_email_address": {
+                "type": "string",
+                "format": "email"
+            }
+        }
+    },
+    "layout": [
+        {
+            "key": "server",
+            "title": "Tunnel server URL",
+            "description": "The full tunnel server URL, including authentication data."
+        },
+
+        {
+            "key": "hostname",
+            "title": "Hostname",
+            "description": "The hostname to connect to. This must be registered on the tunnel server manually using `tunnelctl`. If left blank, a random hostname will be generated."
+        },
+
+        {
+            "key": "proxy.port",
+            "title": "Web interface port"
+        },
+
+        {
+            "key": "certbot_agree_tos",
+            "title": "ACME subscriber agreement accepted"
+        },
+        {
+            "key": "certbot_email_address",
+            "title": "ACME subscriber email address",
+            "description": "If set this email address will be used for notifications from the certificate authority."
+        },
+
+        {
+            "type": "section",
+            "title": "Advanced options",
+            "expandable": true,
+            "items": [
+                {
+                    "key": "proxy.host",
+                    "title": "Web interface IP address"
+                },
+                {
+                    "key": "certbot_path",
+                    "title": "certbot path",
+                    "placeholder": "/usr/local/bin/certbot"
+                },
+                {
+                    "key": "certbot_data_path",
+                    "title": "certbot data path",
+                    "placeholder": "~/.homebridge/remote-access-certbot"
+                },
+                {
+                    "key": "certbot_acme_server",
+                    "title": "certbot ACME server URL",
+                    "placeholder": "https://acme-v02.api.letsencrypt.org/directory"
+                }
+            ]
+        }
+    ]
+}

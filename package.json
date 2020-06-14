@@ -1,14 +1,14 @@
 {
     "name": "@hap-server/remote-access",
     "version": "0.1.0",
-    "description": "",
+    "description": "Secure remote access to hap-server and Homebridge web interfaces.",
     "author": {
         "name": "Samuel Elliott",
         "url": "https://samuelthomas2774.github.io"
     },
-    "license": "MIT",
     "keywords": [
-        "hap-server-plugin"
+        "hap-server-plugin",
+        "homebridge-plugin"
     ],
     "repository": {
         "type": "git",
@@ -43,7 +43,8 @@
         "typescript": "^3.8.3"
     },
     "engines": {
-        "@hap-server/hap-server": "^0.11.2"
+        "@hap-server/hap-server": "^0.11.2",
+        "homebridge": "^0.4.53 || ^1.0.0"
     },
     "publishConfig": {
         "access": "public"

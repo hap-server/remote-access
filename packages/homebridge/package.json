@@ -1,0 +1,23 @@
+{
+    "name": "homebridge-remote-access",
+    "version": "0.0.0",
+    "description": "Secure remote access to hap-server and Homebridge web interfaces.",
+    "author": {
+        "name": "Samuel Elliott",
+        "url": "https://samuelthomas2774.github.io"
+    },
+    "main": "index.js",
+    "repository": {
+        "type": "git",
+        "url": "https://gitlab.fancy.org.uk/hap-server/remote-access.git"
+    },
+    "peerDependencies": {
+        "@hap-server/remote-access": "*"
+    },
+    "engines": {
+        "homebridge": "^0.4.53 || ^1.0.0"
+    },
+    "scripts": {
+        "postinstall": "node test.js"
+    }
+}
